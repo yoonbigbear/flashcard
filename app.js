@@ -68,8 +68,23 @@ function clozeNodes(text, reveal, focus = null) {
   return nodes;
 }
 
+// 앞/뒤 한 쌍으로 다루는 카드 (4지선다 보기, 매칭 게임에 쓸 수 있다)
+const isPairCard = c => c.type === 'basic' || c.type === 'sentence';
+
+// 문장 카드의 발음 줄 (일본어 발음 / 한국어 발음). 비어 있으면 생략.
+function pronNodes(card) {
+  return [['일본어', card.pronJa], ['한국어', card.pronKo]]
+    .filter(([, v]) => v)
+    .map(([label, v]) => h('div', { class: 'pron' }, h('span', { class: 'pron-label' }, label), v));
+}
+
 // 카드 한 면의 내용. dir: 'f'(앞→뒤) | 'r'(뒤→앞)
 function faceNodes(card, dir, flipped) {
+  if (card.type === 'sentence') {
+    return flipped
+      ? [h('div', { class: 'q-small' }, card.front), h('div', null, card.back), pronNodes(card)]
+      : [h('div', null, card.front)];
+  }
   if (card.type === 'cloze') {
     return flipped
       ? [h('div', null, clozeNodes(card.front, true)),
@@ -237,7 +252,8 @@ function cardForm(card) {
 
   const type = h('select', { 'aria-label': '카드 종류' },
     h('option', { value: 'basic' }, '기본 카드 (앞/뒤)'),
-    h('option', { value: 'cloze' }, '빈칸 문장'));
+    h('option', { value: 'cloze' }, '빈칸 문장'),
+    h('option', { value: 'sentence' }, '문장 (뜻 + 발음)'));
   type.value = c.type;
 
   const front = h('textarea', { rows: '2' });
@@ -266,6 +282,11 @@ function cardForm(card) {
   const start = h('input', { type: 'text', class: 'text-input', placeholder: '재생 시작 시간 (예: 1:23)' });
   start.value = Number.isFinite(c.start) ? JP.formatTime(c.start) : '';
 
+  const pronJa = h('input', { type: 'text', class: 'text-input', placeholder: '일본어 발음 (선택, 예: こんにちは)' });
+  pronJa.value = c.pronJa || '';
+  const pronKo = h('input', { type: 'text', class: 'text-input', placeholder: '한국어 발음 (선택, 예: 곤니치와)' });
+  pronKo.value = c.pronKo || '';
+
   const tags = h('input', { type: 'text', class: 'text-input', placeholder: '태그 (쉼표로 구분, 예: 명사, 시험)' });
   tags.value = c.tags.join(', ');
 
@@ -275,21 +296,24 @@ function cardForm(card) {
 
   function sync() {
     const cloze = type.value === 'cloze';
-    front.placeholder = cloze ? '문장 (빈칸은 {{단어}} 로 표시)' : '앞면 (질문)';
-    back.placeholder = cloze ? '메모 / 뜻 (선택)' : '뒷면 (답)';
+    const sentence = type.value === 'sentence';
+    front.placeholder = cloze ? '문장 (빈칸은 {{단어}} 로 표시)' : sentence ? '문장' : '앞면 (질문)';
+    back.placeholder = cloze ? '메모 / 뜻 (선택)' : sentence ? '뜻 (답)' : '뒷면 (답)';
     blankBtn.hidden = !cloze;
-    revLabel.hidden = cloze;
+    revLabel.hidden = cloze || sentence;
+    pronJa.hidden = pronKo.hidden = !sentence;
   }
   type.addEventListener('change', sync);
   sync();
-  if (isLine) { type.hidden = true; blankBtn.hidden = true; revLabel.hidden = true; }
+  if (isLine) { type.hidden = true; blankBtn.hidden = true; revLabel.hidden = true; pronJa.hidden = pronKo.hidden = true; }
 
   return {
-    el: h('div', { class: 'card-fields' }, type, front, blankBtn, back, isLine ? read : null, hasVideo ? start : null, tags, revLabel),
+    el: h('div', { class: 'card-fields' }, type, front, blankBtn, back, pronJa, pronKo, isLine ? read : null, hasVideo ? start : null, tags, revLabel),
     front,
     // 검증에 실패하면 null
     get() {
       const isCloze = type.value === 'cloze';
+      const isSentence = type.value === 'sentence';
       const f = front.value.trim(), b = back.value.trim();
       if (!f) { toast('내용을 입력하세요'); return null; }
       if (isCloze && !clozeAnswers(f).length) { toast('{{단어}} 형태로 빈칸을 하나 이상 지정하세요'); return null; }
@@ -301,7 +325,9 @@ function cardForm(card) {
         front: f,
         back: b,
         tags: unique(tags.value.split(/[,，]/).map(t => t.trim()).filter(Boolean)),
-        reverse: !isCloze && rev.checked,
+        reverse: !isCloze && !isSentence && rev.checked,
+        pronJa: isSentence ? pronJa.value.trim() : '',
+        pronKo: isSentence ? pronKo.value.trim() : '',
         ...(isLine ? { read: read.value.trim() } : {}),
         ...(hasVideo ? { start: startSec } : {})
       };
@@ -346,7 +372,7 @@ async function renderDeck(deckId) {
   const tag = nav.tag;
   const scoped = tag ? cards.filter(c => c.tags.includes(tag)) : cards;
   const due = dueItems(scoped);
-  const basicCount = scoped.filter(c => c.type === 'basic').length;
+  const basicCount = scoped.filter(isPairCard).length;
   const allTags = unique(cards.flatMap(c => c.tags)).sort();
 
   // 대화 스크립트 덱: 스크립트 목록과 연습만 있고 일반 학습·카드 입력은 없다.
@@ -406,7 +432,8 @@ async function renderDeck(deckId) {
     const q = search.value.trim().toLowerCase();
     listEl.replaceChildren();
     const shown = scoped.filter(c =>
-      !q || (c.front + ' ' + c.back + ' ' + c.tags.join(' ')).toLowerCase().includes(q));
+      !q || (c.front + ' ' + c.back + ' ' + (c.pronJa || '') + ' ' + (c.pronKo || '') + ' ' + c.tags.join(' '))
+        .toLowerCase().includes(q));
     for (const c of shown) listEl.append(cardRow(c));
     if (!shown.length) {
       listEl.append(h('p', { class: 'empty' }, scoped.length ? '검색 결과가 없어요.'
@@ -445,8 +472,10 @@ function cardRow(c, extra) {
     h('div', { class: 'card-text' },
       h('div', { class: 'card-front' }, body),
       c.back ? h('div', { class: 'card-back' }, c.back) : null,
+      c.type === 'sentence' ? pronNodes(c) : null,
       h('div', { class: 'card-meta' },
         c.type === 'cloze' ? h('span', { class: 'tag kind' }, '빈칸') : null,
+        c.type === 'sentence' ? h('span', { class: 'tag kind' }, '문장') : null,
         c.reverse ? h('span', { class: 'tag kind' }, '↔ 양방향') : null,
         c.note ? h('span', { class: 'tag warn' }, '오답노트') : null,
         c.wrong ? h('span', { class: 'tag' }, `✗ ${c.wrong}`) : null,
@@ -553,7 +582,7 @@ function makeQuestion(card, dir, pool) {
     prompt = f ? card.front : card.back;
     answer = f ? card.back : card.front;
     distractors = pool
-      .filter(c => c.id !== card.id && c.type === 'basic')
+      .filter(c => c.id !== card.id && isPairCard(c))
       .map(c => (f ? c.back : c.front));
   }
   distractors = unique(distractors.filter(w => w !== answer));
@@ -635,7 +664,7 @@ async function renderQuiz(deckId) {
 async function renderMatch(deckId) {
   setHeader('매칭 게임', { deckId, tag: nav.tag });
   const all = (await Store.listCards(deckId)).filter(c => !c.script);
-  const scoped = (nav.tag ? all.filter(c => c.tags.includes(nav.tag)) : all).filter(c => c.type === 'basic');
+  const scoped = (nav.tag ? all.filter(c => c.tags.includes(nav.tag)) : all).filter(isPairCard);
   const picked = shuffle(scoped).slice(0, MATCH_PAIRS);
 
   if (picked.length < 2) {

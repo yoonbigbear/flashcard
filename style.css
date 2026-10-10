@@ -105,6 +105,14 @@ textarea:focus, input:focus { outline: 2px solid var(--primary); outline-offset:
 .card-back { color: var(--muted); font-size: 0.92rem; overflow-wrap: anywhere; }
 .card-actions { display: flex; }
 
+/* 문장 카드의 발음 줄 (일본어 발음 / 한국어 발음) */
+.pron { color: var(--muted); font-size: 0.92rem; overflow-wrap: anywhere; }
+.pron-label {
+  display: inline-block; margin-right: 8px; padding: 0 8px; border-radius: 999px;
+  font-size: 0.75rem; color: var(--primary); border: 1px solid var(--primary);
+}
+.flip-card .pron { font-size: 1rem; margin-top: 6px; }
+
 /* 학습 */
 .progress { height: 6px; background: var(--border); border-radius: 999px; overflow: hidden; }
 .progress-fill { height: 100%; width: 0; background: var(--primary); transition: width 0.25s; }

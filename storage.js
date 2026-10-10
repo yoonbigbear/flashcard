@@ -2,7 +2,8 @@
 // 클라우드 동기화(sync.js)는 아래 훅을 통해 변경 사항을 주고받는다.
 //
 // card 필드
-//   type     'basic'(앞/뒤) | 'cloze'(front 안에 {{빈칸}} 표시)
+//   type     'basic'(앞/뒤) | 'cloze'(front 안에 {{빈칸}} 표시) | 'sentence'(문장 + 뜻 + 발음)
+//   pronJa   일본어 발음 (sentence 전용, 선택),  pronKo  한국어 발음 (sentence 전용, 선택)
 //   tags     태그 배열
 //   reverse  양방향 여부 (basic 전용: 뒤→앞도 복습)
 //   box/due  앞→뒤(또는 빈칸) 복습 상태,  rbox/rdue  뒤→앞 복습 상태
@@ -12,7 +13,7 @@ const Store = (() => {
   const KEY = 'flashcard-data-v1';
 
   const normalizeCard = c => ({
-    type: 'basic', tags: [], reverse: false,
+    type: 'basic', tags: [], reverse: false, pronJa: '', pronKo: '',
     box: 0, due: 0, rbox: 0, rdue: 0,
     wrong: 0, note: false, streak: 0, updated: 0,
     ...c,
