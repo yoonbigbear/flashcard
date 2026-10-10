@@ -152,6 +152,7 @@ async function render() {
   $view.scrollTop = 0;
 
   if (nav.tab === 'settings') return renderSettings();
+  if (nav.tab === 'chat') return renderChat();
   if (nav.tab === 'note') return nav.mode === 'study' ? renderNoteStudy() : renderNote();
   if (nav.deckId) {
     if (nav.mode === 'study') return renderStudy(nav.deckId);
@@ -797,6 +798,9 @@ function renderSettings() {
             h('button', { class: 'primary', onclick: () => window.Sync.signIn() }, '구글로 로그인')
           ]));
   }
+
+  // AI 키는 이 기기에만 저장되므로 게스트도 자기 키를 쓸 수 있다.
+  $view.append(aiSettingsPanel());
 
   // 게스트는 가져오기(데이터 교체)를 쓸 수 없다.
   if (isReadOnly()) return;
