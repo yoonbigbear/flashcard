@@ -1,5 +1,5 @@
 // 앱 파일을 수정해서 배포할 때마다 CACHE 버전을 올려야 폰에 새 버전이 반영된다.
-const CACHE = 'flashcard-v3';
+const CACHE = 'flashcard-v4';
 const FILES = [
   './',
   'index.html',
