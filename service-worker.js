@@ -1,5 +1,5 @@
 // 앱 파일을 수정해서 배포할 때마다 CACHE 버전을 올려야 폰에 새 버전이 반영된다.
-const CACHE = 'flashcard-v4';
+const CACHE = 'flashcard-v5';
 const FILES = [
   './',
   'index.html',
@@ -15,7 +15,9 @@ const FILES = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)));
+  // cache: 'reload' 로 브라우저 HTTP 캐시를 건너뛰고 항상 새로 받는다.
+  e.waitUntil(caches.open(CACHE).then(c =>
+    c.addAll(FILES.map(f => new Request(f, { cache: 'reload' })))));
   self.skipWaiting();
 });
 
@@ -46,6 +48,15 @@ self.addEventListener('fetch', e => {
   // 그 외 외부 요청(Firestore, 구글 로그인 등)은 건드리지 않는다.
   if (url.origin !== location.origin) return;
 
-  // 캐시 우선, 없으면 네트워크
-  e.respondWith(caches.match(e.request).then(hit => hit || fetch(e.request)));
+  // 네트워크 우선(항상 최신 버전), 오프라인이면 캐시
+  e.respondWith(
+    fetch(e.request)
+      .then(res => {
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, copy));
+        }
+        return res;
+      })
+      .catch(() => caches.match(e.request)));
 });

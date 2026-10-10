@@ -33,6 +33,11 @@
   <script type="module" src="sync.js"></script>
   <script>
     if ('serviceWorker' in navigator) {
+      // 새 버전이 활성화되면 한 번 자동으로 새로고침해서 바로 반영한다.
+      const hadController = !!navigator.serviceWorker.controller;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (hadController) location.reload();
+      });
       navigator.serviceWorker.register('service-worker.js').catch(() => {});
     }
   </script>
