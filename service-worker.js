@@ -1,11 +1,13 @@
 // 앱 파일을 수정해서 배포할 때마다 CACHE 버전을 올려야 폰에 새 버전이 반영된다.
-const CACHE = 'flashcard-v2';
+const CACHE = 'flashcard-v3';
 const FILES = [
   './',
   'index.html',
   'style.css',
   'app.js',
   'storage.js',
+  'sync.js',
+  'firebase-config.js',
   'manifest.json',
   'icons/icon-192.png',
   'icons/icon-512.png',
@@ -25,8 +27,25 @@ self.addEventListener('activate', e => {
   );
 });
 
-// 캐시 우선, 없으면 네트워크
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+
+  // Firebase SDK: 처음 한 번 받아 두면 오프라인에서도 앱이 켜진다.
+  if (url.hostname === 'www.gstatic.com' && url.pathname.startsWith('/firebasejs/')) {
+    e.respondWith(caches.open(CACHE).then(async cache => {
+      const hit = await cache.match(e.request);
+      if (hit) return hit;
+      const res = await fetch(e.request);
+      if (res.ok) cache.put(e.request, res.clone());
+      return res;
+    }));
+    return;
+  }
+
+  // 그 외 외부 요청(Firestore, 구글 로그인 등)은 건드리지 않는다.
+  if (url.origin !== location.origin) return;
+
+  // 캐시 우선, 없으면 네트워크
   e.respondWith(caches.match(e.request).then(hit => hit || fetch(e.request)));
 });

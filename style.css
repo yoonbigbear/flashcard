@@ -127,6 +127,8 @@ textarea:focus, input:focus { outline: 2px solid var(--primary); outline-offset:
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
 .panel h2 { margin: 0 0 6px; font-size: 1.05rem; }
 .panel p { margin: 0 0 12px; color: var(--muted); font-size: 0.92rem; }
+.panel p.error { color: var(--danger); }
+.panel + .panel { margin-top: 0; }
 
 .toast {
   position: fixed; left: 50%; bottom: calc(90px + env(safe-area-inset-bottom)); transform: translateX(-50%);

@@ -710,6 +710,25 @@ function renderSettings() {
     }
   });
 
+  const sync = window.Sync && window.Sync.state;
+  if (sync && sync.enabled) {
+    $view.append(h('section', { class: 'panel' },
+      h('h2', null, '클라우드 동기화'),
+      sync.user
+        ? [
+            h('p', null, `${sync.user.name || sync.user.email} 계정으로 로그인됨`
+              + (sync.syncing ? ' · 동기화 중…' : ' · 동기화됨')),
+            h('p', null, '로그아웃해도 이 기기의 카드는 그대로 남아 있어요.'),
+            sync.error ? h('p', { class: 'error' }, sync.error) : null,
+            h('button', { onclick: () => window.Sync.signOut() }, '로그아웃')
+          ]
+        : [
+            h('p', null, '로그인하면 폰과 PC에서 같은 카드를 쓸 수 있어요. 이 기기의 기존 카드는 자동으로 올라가요.'),
+            sync.error ? h('p', { class: 'error' }, sync.error) : null,
+            h('button', { class: 'primary', onclick: () => window.Sync.signIn() }, '구글로 로그인')
+          ]));
+  }
+
   $view.append(h('section', { class: 'panel' },
     h('h2', null, '백업'),
     h('p', null, '카드는 이 기기의 브라우저에만 저장돼요. 브라우저 데이터를 지우면 사라지니 가끔 백업하세요.'),
@@ -726,6 +745,18 @@ function renderSettings() {
       h('button', { onclick: () => fileInput.click() }, '가져오기'),
       fileInput)));
 }
+
+// 다른 기기에서 바뀐 내용이 들어오면 화면을 갱신한다.
+// 학습/퀴즈 진행 중이거나 입력 중이면 방해하지 않는다.
+Store.onRemoteChange(() => {
+  if (nav.mode || document.querySelector('dialog[open]')) return;
+  const el = document.activeElement;
+  if (el && /^(TEXTAREA|INPUT|SELECT)$/.test(el.tagName)) return;
+  render();
+});
+window.addEventListener('sync-state', () => {
+  if (nav.tab === 'settings') render();
+});
 
 Store.requestPersistence();
 render();

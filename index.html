@@ -28,7 +28,9 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="storage.js"></script>
+  <script src="firebase-config.js"></script>
   <script src="app.js"></script>
+  <script type="module" src="sync.js"></script>
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('service-worker.js').catch(() => {});
