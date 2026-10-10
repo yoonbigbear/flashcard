@@ -89,6 +89,7 @@ function dueItems(cards) {
   const end = endOfToday();
   const items = [];
   for (const c of cards) {
+    if (c.script) continue; // 대화 스크립트 줄은 따로 연습한다
     if (c.due <= end) items.push({ card: c, dir: 'f' });
     if (c.type === 'basic' && c.reverse && c.rdue <= end) items.push({ card: c, dir: 'r' });
   }
@@ -132,11 +133,11 @@ async function applyPatch(card, patch) {
 }
 
 // ---------- 라우팅 ----------
-let nav = { tab: 'decks', deckId: null, mode: null, tag: null };
+let nav = { tab: 'decks', deckId: null, mode: null, tag: null, scriptId: null };
 let formMemo = { type: 'basic', tags: [], reverse: false }; // 연속 입력 시 유지할 값
 
 function go(next) {
-  nav = { tab: 'decks', deckId: null, mode: null, tag: null, ...next };
+  nav = { tab: 'decks', deckId: null, mode: null, tag: null, scriptId: null, ...next };
   render();
 }
 
@@ -156,6 +157,7 @@ async function render() {
     if (nav.mode === 'study') return renderStudy(nav.deckId);
     if (nav.mode === 'quiz') return renderQuiz(nav.deckId);
     if (nav.mode === 'match') return renderMatch(nav.deckId);
+    if (nav.mode === 'script') return renderScriptPractice(nav.deckId, nav.scriptId);
     return renderDeck(nav.deckId);
   }
   return renderDecks();
@@ -228,6 +230,11 @@ function cardForm(card) {
     }
   }, '선택한 부분을 빈칸으로');
 
+  // 대화 스크립트의 줄은 한글 발음 칸이 있고, 앞/뒤 형태로만 쓴다.
+  const isLine = !!c.script;
+  const read = h('input', { type: 'text', class: 'text-input', placeholder: '한글 발음 (예: 아리가토 고자이마스)' });
+  read.value = c.read || '';
+
   const tags = h('input', { type: 'text', class: 'text-input', placeholder: '태그 (쉼표로 구분, 예: 명사, 시험)' });
   tags.value = c.tags.join(', ');
 
@@ -244,9 +251,10 @@ function cardForm(card) {
   }
   type.addEventListener('change', sync);
   sync();
+  if (isLine) { type.hidden = true; blankBtn.hidden = true; revLabel.hidden = true; }
 
   return {
-    el: h('div', { class: 'card-fields' }, type, front, blankBtn, back, tags, revLabel),
+    el: h('div', { class: 'card-fields' }, type, front, blankBtn, back, isLine ? read : null, tags, revLabel),
     front,
     // 검증에 실패하면 null
     get() {
@@ -254,13 +262,14 @@ function cardForm(card) {
       const f = front.value.trim(), b = back.value.trim();
       if (!f) { toast('내용을 입력하세요'); return null; }
       if (isCloze && !clozeAnswers(f).length) { toast('{{단어}} 형태로 빈칸을 하나 이상 지정하세요'); return null; }
-      if (!isCloze && !b) { toast('앞면과 뒷면을 모두 입력하세요'); return null; }
+      if (!isCloze && !b && !isLine) { toast('앞면과 뒷면을 모두 입력하세요'); return null; }
       return {
         type: type.value,
         front: f,
         back: b,
         tags: unique(tags.value.split(/[,，]/).map(t => t.trim()).filter(Boolean)),
-        reverse: !isCloze && rev.checked
+        reverse: !isCloze && rev.checked,
+        ...(isLine ? { read: read.value.trim() } : {})
       };
     }
   };
@@ -278,6 +287,8 @@ function editCard(card, onDone) {
         onclick: async () => {
           const v = form.get();
           if (!v) return;
+          // 스크립트 줄의 원문이 바뀌면 빈칸 후보(단어 분리)도 다시 만든다.
+          if (card.script && v.front !== card.front) v.tokens = JP.analyze(v.front);
           await Store.updateCard(card.id, v);
           dlg.close();
           onDone();
@@ -294,7 +305,10 @@ async function renderDeck(deckId) {
   if (!deck) return go({});
   setHeader(deck.name, {});
 
-  const cards = (await Store.listCards(deckId)).sort((a, b) => b.created - a.created);
+  // 대화 스크립트의 줄은 스크립트 영역에서 따로 다루고, 일반 카드 목록·학습에서는 뺀다.
+  const everything = await Store.listCards(deckId);
+  const lineCards = everything.filter(c => c.script);
+  const cards = everything.filter(c => !c.script).sort((a, b) => b.created - a.created);
   const tag = nav.tag;
   const scoped = tag ? cards.filter(c => c.tags.includes(tag)) : cards;
   const due = dueItems(scoped);
@@ -325,6 +339,9 @@ async function renderDeck(deckId) {
         disabled: basicCount < 2,
         onclick: () => go({ deckId, tag, mode: 'match' })
       }, '매칭 게임')));
+
+  // 대화 스크립트 (빈칸 채우기 연습)
+  if (lineCards.length || !isReadOnly()) $view.append(scriptSection(deckId, lineCards));
 
   // 카드 추가 폼 (게스트는 숨김)
   if (!isReadOnly()) {
@@ -374,7 +391,7 @@ async function renderDeck(deckId) {
     h('button', {
       class: 'danger',
       onclick: async () => {
-        if (!confirm(`'${deck.name}' 덱과 카드 ${cards.length}장을 삭제할까요?`)) return;
+        if (!confirm(`'${deck.name}' 덱과 카드 ${everything.length}장을 삭제할까요?`)) return;
         await Store.deleteDeck(deckId);
         go({});
       }
@@ -470,7 +487,7 @@ function flashSession({ items, patchFn, onFinish }) {
 
 async function renderStudy(deckId) {
   setHeader('학습', { deckId, tag: nav.tag });
-  const cards = await Store.listCards(deckId);
+  const cards = (await Store.listCards(deckId)).filter(c => !c.script);
   const scoped = nav.tag ? cards.filter(c => c.tags.includes(nav.tag)) : cards;
   flashSession({
     items: dueItems(scoped),
@@ -508,7 +525,7 @@ function makeQuestion(card, dir, pool) {
 
 async function renderQuiz(deckId) {
   setHeader('4지선다', { deckId, tag: nav.tag });
-  const all = await Store.listCards(deckId);
+  const all = (await Store.listCards(deckId)).filter(c => !c.script);
   const scoped = nav.tag ? all.filter(c => c.tags.includes(nav.tag)) : all;
 
   const questions = shuffle(scoped)
@@ -576,7 +593,7 @@ async function renderQuiz(deckId) {
 // ---------- 매칭 게임 ----------
 async function renderMatch(deckId) {
   setHeader('매칭 게임', { deckId, tag: nav.tag });
-  const all = await Store.listCards(deckId);
+  const all = (await Store.listCards(deckId)).filter(c => !c.script);
   const scoped = (nav.tag ? all.filter(c => c.tags.includes(nav.tag)) : all).filter(c => c.type === 'basic');
   const picked = shuffle(scoped).slice(0, MATCH_PAIRS);
 

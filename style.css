@@ -187,4 +187,41 @@ textarea:focus, input:focus { outline: 2px solid var(--primary); outline-offset:
 @keyframes shake { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
 .match-grid > .done, .match-grid > button, .match-grid > p { grid-column: 1 / -1; }
 
+/* 대화 스크립트 */
+.script-item { border-top: 1px solid var(--border); padding: 10px 0; }
+.script-item > summary { cursor: pointer; font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.script-item > .row, .script-item > .list { margin-top: 10px; }
+.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; color: var(--muted); font-size: 0.92rem; }
+.panel .check { margin-bottom: 10px; }
+.panel .chips { margin-bottom: 12px; }
+.script { display: flex; flex-direction: column; gap: 14px; }
+.script-line { display: flex; gap: 10px; align-items: flex-start; }
+.script-speaker {
+  flex: none; min-width: 1.9em; height: 1.9em; padding: 0 6px; margin-top: 4px; border-radius: 999px;
+  background: var(--primary); color: var(--primary-text); font-size: 0.85rem; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.script-body { flex: 1; min-width: 0; }
+.script-text { font-size: 1.25rem; line-height: 2.2; overflow-wrap: anywhere; }
+.script-read { color: var(--muted); font-size: 0.9rem; }
+.script-meaning { color: var(--muted); font-size: 0.95rem; }
+.gap, .gap-input {
+  font: inherit; color: var(--text); background: var(--surface);
+  border: 0; border-bottom: 3px solid var(--muted); border-radius: 6px 6px 0 0;
+  padding: 0 6px; margin: 0 2px; height: 1.9em; vertical-align: middle; text-align: center;
+}
+.gap { display: inline-block; cursor: pointer; }
+.gap.filled { border-bottom-color: var(--primary); font-weight: 600; }
+.gap.active, .gap-input:focus { border-bottom-color: var(--primary); outline: 2px solid var(--primary); outline-offset: 1px; }
+.gap-result { font-weight: 700; border-bottom: 3px solid var(--ok); color: var(--ok); margin: 0 2px; }
+.gap-result.ng { color: var(--danger); border-bottom-color: var(--danger); }
+.gap-result s { font-weight: 400; opacity: 0.7; margin-right: 6px; }
+.bank-wrap {
+  position: sticky; bottom: 0; margin-top: auto; padding: 10px 0 4px;
+  background: var(--bg); display: flex; flex-direction: column; gap: 10px;
+}
+.bank { display: flex; flex-wrap: wrap; gap: 8px; }
+.word { padding: 8px 14px; font-size: 1.05rem; border-radius: 999px; }
+.word.used, .word:disabled { opacity: 0.35; }
+
 [hidden] { display: none !important; }
