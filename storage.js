@@ -56,8 +56,9 @@ const Store = (() => {
     async listDecks() {
       return data.decks.map(d => ({ ...d }));
     },
-    async addDeck(name) {
-      const deck = { id: uid(), name, created: Date.now(), updated: Date.now() };
+    // kind: 'script'(대화 스크립트 덱) | 생략하면 일반 카드 덱
+    async addDeck(name, kind) {
+      const deck = { id: uid(), name, created: Date.now(), updated: Date.now(), ...(kind ? { kind } : {}) };
       data.decks.push(deck);
       save();
       emit('deck', 'set', { ...deck });

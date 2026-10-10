@@ -178,10 +178,11 @@ async function renderDecks() {
   for (const deck of decks) {
     const cards = await Store.listCards(deck.id);
     const due = dueItems(cards).length;
+    const scriptDeck = isScriptDeck(deck, cards);
     list.append(h('button', { class: 'deck-item', onclick: () => go({ deckId: deck.id }) },
       h('div', { class: 'deck-name' }, deck.name),
       h('div', { class: 'deck-meta' },
-        `카드 ${cards.length}장`,
+        scriptDeck ? `대화 스크립트 · ${cards.length}줄` : `카드 ${cards.length}장`,
         due > 0 ? h('span', { class: 'badge' }, `복습 ${due}`) : null)));
   }
 
@@ -195,13 +196,38 @@ async function renderDecks() {
   if (isReadOnly()) return;
   $view.append(h('button', {
     class: 'fab', 'aria-label': '덱 추가',
-    onclick: async () => {
-      const name = (prompt('새 덱 이름') || '').trim();
-      if (!name) return;
-      const deck = await Store.addDeck(name);
-      go({ deckId: deck.id });
-    }
+    onclick: () => newDeckDialog()
   }, '+'));
+}
+
+// 덱 종류: 일반 카드 덱 / 대화 스크립트 덱. 스크립트 기능은 스크립트 덱에서만 나온다.
+const isScriptDeck = (deck, cards) => deck.kind === 'script' || cards.some(c => c.script);
+
+function newDeckDialog() {
+  const name = h('input', { type: 'text', class: 'text-input', placeholder: '덱 이름' });
+  const kind = h('select', { 'aria-label': '덱 종류' },
+    h('option', { value: 'cards' }, '일반 카드 덱 (앞/뒤, 빈칸, 퀴즈)'),
+    h('option', { value: 'script' }, '대화 스크립트 덱 (대화문 빈칸 채우기)'));
+
+  const create = async () => {
+    const n = name.value.trim();
+    if (!n) return toast('덱 이름을 입력하세요');
+    const deck = await Store.addDeck(n, kind.value === 'script' ? 'script' : undefined);
+    dlg.close();
+    go({ deckId: deck.id });
+  };
+  name.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) create(); });
+
+  const dlg = h('dialog', { class: 'dialog' },
+    h('h2', null, '새 덱'),
+    h('div', { class: 'card-fields' }, name, kind),
+    h('div', { class: 'row' },
+      h('button', { type: 'button', onclick: () => dlg.close() }, '취소'),
+      h('button', { type: 'button', class: 'primary', onclick: create }, '만들기')));
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg);
+  dlg.showModal();
+  name.focus();
 }
 
 // ---------- 카드 입력 폼 (추가/수정 공용) ----------
@@ -315,6 +341,13 @@ async function renderDeck(deckId) {
   const basicCount = scoped.filter(c => c.type === 'basic').length;
   const allTags = unique(cards.flatMap(c => c.tags)).sort();
 
+  // 대화 스크립트 덱: 스크립트 목록과 연습만 있고 일반 학습·카드 입력은 없다.
+  if (isScriptDeck(deck, everything)) {
+    $view.append(scriptSection(deckId, lineCards));
+    if (!isReadOnly()) $view.append(deckManageRow(deck, everything.length));
+    return;
+  }
+
   // 태그 필터
   if (allTags.length) {
     const chip = (label, value) => h('button', {
@@ -339,9 +372,6 @@ async function renderDeck(deckId) {
         disabled: basicCount < 2,
         onclick: () => go({ deckId, tag, mode: 'match' })
       }, '매칭 게임')));
-
-  // 대화 스크립트 (빈칸 채우기 연습)
-  if (lineCards.length || !isReadOnly()) $view.append(scriptSection(deckId, lineCards));
 
   // 카드 추가 폼 (게스트는 숨김)
   if (!isReadOnly()) {
@@ -380,22 +410,25 @@ async function renderDeck(deckId) {
   paint();
 
   // 덱 관리 (게스트는 숨김)
-  if (isReadOnly()) return;
-  $view.append(h('div', { class: 'row' },
+  if (!isReadOnly()) $view.append(deckManageRow(deck, everything.length));
+}
+
+function deckManageRow(deck, cardCount) {
+  return h('div', { class: 'row' },
     h('button', {
       onclick: async () => {
         const name = (prompt('덱 이름 변경', deck.name) || '').trim();
-        if (name) { await Store.renameDeck(deckId, name); render(); }
+        if (name) { await Store.renameDeck(deck.id, name); render(); }
       }
     }, '덱 이름 변경'),
     h('button', {
       class: 'danger',
       onclick: async () => {
-        if (!confirm(`'${deck.name}' 덱과 카드 ${everything.length}장을 삭제할까요?`)) return;
-        await Store.deleteDeck(deckId);
+        if (!confirm(`'${deck.name}' 덱과 카드 ${cardCount}장을 삭제할까요?`)) return;
+        await Store.deleteDeck(deck.id);
         go({});
       }
-    }, '덱 삭제')));
+    }, '덱 삭제'));
 }
 
 function cardRow(c, extra) {
