@@ -128,7 +128,8 @@ function renderChatSetup() {
     field('수준', level),
     h('label', { class: 'check' }, read, '한글 발음 보기'),
     h('label', { class: 'check' }, meaning, '한국어 뜻 보기'),
-    Gemini.key() ? null : h('p', { class: 'error' }, '설정 탭에서 Gemini API 키를 먼저 넣어 주세요.'),
+    // append() 는 null 을 "null" 글자로 찍으므로 값이 없을 땐 아예 넘기지 않는다.
+    ...(Gemini.key() ? [] : [h('p', { class: 'error' }, '설정 탭에서 Gemini API 키를 먼저 넣어 주세요.')]),
     h('button', {
       class: 'primary big',
       onclick: () => {
