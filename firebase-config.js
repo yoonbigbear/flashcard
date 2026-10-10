@@ -9,3 +9,7 @@ window.FIREBASE_CONFIG = {
   messagingSenderId: "39962087064",
   appId: "1:39962087064:web:ef2e0ed11f70c54d490aed"
 };
+
+// 편집 권한이 있는 소유자의 uid. 다른 사람(게스트)은 이 사람의 카드를 읽기 전용으로 본다.
+// firestore.rules 의 uid 와 같아야 한다.
+window.OWNER_UID = "BZ9tnw3zjtc7Jh75G1SBOBR8ckM2";

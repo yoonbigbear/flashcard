@@ -5,12 +5,17 @@
 //   - Firestore 변경 → onSnapshot → Store.applyRemote 로 병합
 // Firestore 자체 오프라인 캐시가 있어서 오프라인 중 쓴 내용은 온라인이 되면 올라간다.
 // 데이터 위치: users/{uid}/decks/{id}, users/{uid}/cards/{id}
+//
+// 권한: OWNER_UID 계정으로 로그인했을 때만 편집(쓰기)할 수 있다.
+// 그 외(로그아웃 상태, 다른 계정)는 소유자의 데이터를 읽기 전용으로 받아 보기만 한다.
 const cfg = window.FIREBASE_CONFIG;
+const OWNER_UID = window.OWNER_UID;
 const SDK_VERSION = '11.0.2';
 const SDK = `https://www.gstatic.com/firebasejs/${SDK_VERSION}/`;
 const COLLECTION = { deck: 'decks', card: 'cards' };
 
-const state = { enabled: !!cfg, user: null, syncing: false, error: '' };
+// readOnly: 동기화가 켜져 있고 소유자가 아닐 때 true. (동기화 꺼짐 = 로컬 전용이라 false)
+const state = { enabled: !!cfg, user: null, syncing: false, error: '', readOnly: !!cfg && !!OWNER_UID };
 const notify = () => window.dispatchEvent(new CustomEvent('sync-state'));
 
 window.Sync = {
@@ -71,8 +76,9 @@ async function start() {
     currentUid = null;
   }
 
-  function begin(uid) {
-    currentUid = uid;
+  // uid: 구독할 데이터의 주인. readOnly 면 내려받기만 하고 로컬 변경은 올리지 않는다.
+  function begin(uid, readOnly) {
+    currentUid = readOnly ? null : uid; // null 이면 onLocalWrite 가 아무것도 쓰지 않는다
     state.syncing = true;
     state.error = '';
     notify();
@@ -117,7 +123,10 @@ async function start() {
 
           if (initial[kind] === null) {
             initial[kind] = new Map(snap.docs.map(d => [d.id, d.data().updated || 0]));
-            if (initial.deck && initial.card) pushLocalDiff().catch(fail);
+            if (initial.deck && initial.card) {
+              if (readOnly) { state.syncing = false; notify(); }
+              else pushLocalDiff().catch(fail);
+            }
           }
         },
         fail);
@@ -128,9 +137,12 @@ async function start() {
   A.onAuthStateChanged(auth, user => {
     stop();
     state.user = user ? { name: user.displayName || '', email: user.email || '' } : null;
+    state.readOnly = !(user && user.uid === OWNER_UID);
     state.syncing = false;
     notify();
-    if (user) begin(user.uid);
+    // 소유자면 양방향 동기화, 아니면 소유자 데이터를 읽기 전용으로 구독한다.
+    if (!state.readOnly) begin(user.uid, false);
+    else if (OWNER_UID) begin(OWNER_UID, true);
   });
 
   window.Sync.signIn = async () => {

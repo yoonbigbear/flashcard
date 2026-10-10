@@ -32,6 +32,10 @@ function toast(msg) {
   toast.t = setTimeout(() => { $toast.hidden = true; }, 2000);
 }
 
+// 게스트(소유자가 아닌 사람)는 카드를 보고 학습만 할 수 있고, 추가/수정/삭제는 못 한다.
+// 실제 차단은 firestore.rules 가 하고, 여기서는 쓸 수 없는 버튼을 숨긴다.
+const isReadOnly = () => !!(window.Sync && window.Sync.state.readOnly);
+
 const shuffle = arr => {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -180,10 +184,13 @@ async function renderDecks() {
   }
 
   if (!decks.length) {
-    list.append(h('p', { class: 'empty' }, '아직 덱이 없어요.\n아래 + 버튼으로 첫 덱을 만들어 보세요.'));
+    list.append(h('p', { class: 'empty' }, isReadOnly()
+      ? '아직 덱이 없어요.'
+      : '아직 덱이 없어요.\n아래 + 버튼으로 첫 덱을 만들어 보세요.'));
   }
   $view.append(list);
 
+  if (isReadOnly()) return;
   $view.append(h('button', {
     class: 'fab', 'aria-label': '덱 추가',
     onclick: async () => {
@@ -319,21 +326,23 @@ async function renderDeck(deckId) {
         onclick: () => go({ deckId, tag, mode: 'match' })
       }, '매칭 게임')));
 
-  // 카드 추가 폼
-  const form = cardForm({ type: formMemo.type, front: '', back: '', tags: formMemo.tags, reverse: formMemo.reverse });
-  const addBtn = h('button', {
-    type: 'button', class: 'primary',
-    onclick: async () => {
-      const v = form.get();
-      if (!v) return;
-      await Store.addCard(deckId, v);
-      formMemo = { type: v.type, tags: v.tags, reverse: v.reverse };
-      toast('추가됨');
-      await render();
-      $view.querySelector('.card-form textarea')?.focus();
-    }
-  }, '카드 추가');
-  $view.append(h('div', { class: 'card-form' }, form.el, addBtn));
+  // 카드 추가 폼 (게스트는 숨김)
+  if (!isReadOnly()) {
+    const form = cardForm({ type: formMemo.type, front: '', back: '', tags: formMemo.tags, reverse: formMemo.reverse });
+    const addBtn = h('button', {
+      type: 'button', class: 'primary',
+      onclick: async () => {
+        const v = form.get();
+        if (!v) return;
+        await Store.addCard(deckId, v);
+        formMemo = { type: v.type, tags: v.tags, reverse: v.reverse };
+        toast('추가됨');
+        await render();
+        $view.querySelector('.card-form textarea')?.focus();
+      }
+    }, '카드 추가');
+    $view.append(h('div', { class: 'card-form' }, form.el, addBtn));
+  }
 
   // 검색 + 목록
   const listEl = h('div', { class: 'list' });
@@ -345,14 +354,16 @@ async function renderDeck(deckId) {
       !q || (c.front + ' ' + c.back + ' ' + c.tags.join(' ')).toLowerCase().includes(q));
     for (const c of shown) listEl.append(cardRow(c));
     if (!shown.length) {
-      listEl.append(h('p', { class: 'empty' }, scoped.length ? '검색 결과가 없어요.' : '카드를 추가해 보세요.'));
+      listEl.append(h('p', { class: 'empty' }, scoped.length ? '검색 결과가 없어요.'
+        : isReadOnly() ? '카드가 없어요.' : '카드를 추가해 보세요.'));
     }
   };
   search.addEventListener('input', paint);
   $view.append(search, listEl);
   paint();
 
-  // 덱 관리
+  // 덱 관리 (게스트는 숨김)
+  if (isReadOnly()) return;
   $view.append(h('div', { class: 'row' },
     h('button', {
       onclick: async () => {
@@ -383,7 +394,7 @@ function cardRow(c, extra) {
         c.wrong ? h('span', { class: 'tag' }, `✗ ${c.wrong}`) : null,
         c.tags.map(t => h('span', { class: 'tag' }, '#' + t)),
         extra || null)),
-    h('div', { class: 'card-actions' },
+    isReadOnly() ? null : h('div', { class: 'card-actions' },
       h('button', { class: 'icon-btn', 'aria-label': '수정', onclick: () => editCard(c, render) }, '✎'),
       h('button', {
         class: 'icon-btn', 'aria-label': '삭제',
@@ -718,17 +729,20 @@ function renderSettings() {
         ? [
             h('p', null, `${sync.user.name || sync.user.email} 계정으로 로그인됨`
               + (sync.syncing ? ' · 동기화 중…' : ' · 동기화됨')),
+            sync.readOnly ? h('p', null, '이 계정은 읽기 전용이에요. 카드를 보고 학습만 할 수 있어요.') : null,
             h('p', null, '로그아웃해도 이 기기의 카드는 그대로 남아 있어요.'),
             sync.error ? h('p', { class: 'error' }, sync.error) : null,
             h('button', { onclick: () => window.Sync.signOut() }, '로그아웃')
           ]
         : [
-            h('p', null, '로그인하면 폰과 PC에서 같은 카드를 쓸 수 있어요. 이 기기의 기존 카드는 자동으로 올라가요.'),
+            h('p', null, '지금은 읽기 전용이에요. 카드를 보고 학습만 할 수 있어요. 편집하려면 소유자 계정으로 로그인하세요.'),
             sync.error ? h('p', { class: 'error' }, sync.error) : null,
             h('button', { class: 'primary', onclick: () => window.Sync.signIn() }, '구글로 로그인')
           ]));
   }
 
+  // 게스트는 가져오기(데이터 교체)를 쓸 수 없다.
+  if (isReadOnly()) return;
   $view.append(h('section', { class: 'panel' },
     h('h2', null, '백업'),
     h('p', null, '카드는 이 기기의 브라우저에만 저장돼요. 브라우저 데이터를 지우면 사라지니 가끔 백업하세요.'),
@@ -754,8 +768,13 @@ Store.onRemoteChange(() => {
   if (el && /^(TEXTAREA|INPUT|SELECT)$/.test(el.tagName)) return;
   render();
 });
+let lastReadOnly = isReadOnly();
 window.addEventListener('sync-state', () => {
-  if (nav.tab === 'settings') render();
+  // 로그인 상태가 바뀌어 편집 권한이 달라지면 화면을 다시 그린다.
+  const changed = lastReadOnly !== isReadOnly();
+  lastReadOnly = isReadOnly();
+  const busy = nav.mode || document.querySelector('dialog[open]');
+  if (nav.tab === 'settings' || (changed && !busy)) render();
 });
 
 Store.requestPersistence();
