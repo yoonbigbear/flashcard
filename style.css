@@ -225,3 +225,14 @@ textarea:focus, input:focus { outline: 2px solid var(--primary); outline-offset:
 .word.used, .word:disabled { opacity: 0.35; }
 
 [hidden] { display: none !important; }
+
+/* 유튜브 오디오 */
+.yt-box { aspect-ratio: 16 / 9; width: 100%; background: #000; border-radius: var(--radius); overflow: hidden; }
+.yt-box iframe { width: 100%; height: 100%; border: 0; display: block; }
+.hint.error { color: var(--danger); }
+.play-btn {
+  flex: none; width: 2.2em; height: 2.2em; padding: 0; margin-top: 2px; border-radius: 50%;
+  background: var(--primary); color: var(--primary-text); border-color: var(--primary); font-size: 0.9rem;
+}
+.listen-answer { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+.listen-answer .script-text { line-height: 1.7; }

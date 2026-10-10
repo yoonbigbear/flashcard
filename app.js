@@ -260,6 +260,10 @@ function cardForm(card) {
   const isLine = !!c.script;
   const read = h('input', { type: 'text', class: 'text-input', placeholder: '한글 발음 (예: 아리가토 고자이마스)' });
   read.value = c.read || '';
+  // 영상이 연결된 스크립트의 줄은 재생 시작 시간도 고칠 수 있다.
+  const hasVideo = isLine && !!c.video;
+  const start = h('input', { type: 'text', class: 'text-input', placeholder: '재생 시작 시간 (예: 1:23)' });
+  start.value = Number.isFinite(c.start) ? JP.formatTime(c.start) : '';
 
   const tags = h('input', { type: 'text', class: 'text-input', placeholder: '태그 (쉼표로 구분, 예: 명사, 시험)' });
   tags.value = c.tags.join(', ');
@@ -280,7 +284,7 @@ function cardForm(card) {
   if (isLine) { type.hidden = true; blankBtn.hidden = true; revLabel.hidden = true; }
 
   return {
-    el: h('div', { class: 'card-fields' }, type, front, blankBtn, back, isLine ? read : null, tags, revLabel),
+    el: h('div', { class: 'card-fields' }, type, front, blankBtn, back, isLine ? read : null, hasVideo ? start : null, tags, revLabel),
     front,
     // 검증에 실패하면 null
     get() {
@@ -289,13 +293,16 @@ function cardForm(card) {
       if (!f) { toast('내용을 입력하세요'); return null; }
       if (isCloze && !clozeAnswers(f).length) { toast('{{단어}} 형태로 빈칸을 하나 이상 지정하세요'); return null; }
       if (!isCloze && !b && !isLine) { toast('앞면과 뒷면을 모두 입력하세요'); return null; }
+      const startSec = hasVideo ? JP.parseTime(start.value) : null;
+      if (Number.isNaN(startSec)) { toast('시간은 1:23 처럼 적어 주세요'); return null; }
       return {
         type: type.value,
         front: f,
         back: b,
         tags: unique(tags.value.split(/[,，]/).map(t => t.trim()).filter(Boolean)),
         reverse: !isCloze && rev.checked,
-        ...(isLine ? { read: read.value.trim() } : {})
+        ...(isLine ? { read: read.value.trim() } : {}),
+        ...(hasVideo ? { start: startSec } : {})
       };
     }
   };

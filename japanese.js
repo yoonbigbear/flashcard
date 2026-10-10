@@ -31,51 +31,104 @@ const JP = (() => {
     return { speaker: m[1], text: line.slice(m[0].length).trim() };
   }
 
-  // 반환: { items: [{speaker, front, back, read}], skipped }
+  // 줄 앞의 시간 표시. 시간 뒤에 남은 글이 없으면 text 는 ''.
+  const TIME_RE = /^\s*[\[(（]?\s*(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\s*[\])）]?\s*/;
+  function takeTime(line) {
+    const m = line.match(TIME_RE);
+    if (!m) return { time: null, text: line };
+    const sec = (m[1] ? Number(m[1]) * 3600 : 0) + Number(m[2]) * 60 + Number(m[3]);
+    return { time: sec, text: line.slice(m[0].length).trim() };
+  }
+
+  // "1:23" · "1:02:03" · "83" → 초. 비어 있으면 null, 잘못된 값이면 NaN.
+  function parseTime(str) {
+    const s = String(str || '').trim();
+    if (!s) return null;
+    if (/^\d+(\.\d+)?$/.test(s)) return Number(s);
+    const m = s.match(/^(?:(\d{1,2}):)?(\d{1,2}):(\d{2})$/);
+    if (!m) return NaN;
+    return (m[1] ? Number(m[1]) * 3600 : 0) + Number(m[2]) * 60 + Number(m[3]);
+  }
+  function formatTime(sec) {
+    if (!Number.isFinite(sec)) return '';
+    const s = Math.floor(sec);
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+    const pad = n => String(n).padStart(2, '0');
+    return h ? `${h}:${pad(m)}:${pad(r)}` : `${m}:${pad(r)}`;
+  }
+
+  // 유튜브 주소(또는 11자리 영상 id) → 영상 id. 아니면 ''.
+  function videoId(input) {
+    const s = String(input || '').trim();
+    if (/^[\w-]{11}$/.test(s)) return s;
+    const m = s.match(/(?:youtu\.be\/|[?&]v=|\/embed\/|\/shorts\/|\/live\/)([\w-]{11})/);
+    return m ? m[1] : '';
+  }
+
+  // 반환: { items: [{speaker, front, back, read, start}], skipped }
   //  - 한 줄에 `일본어 | 뜻 | 발음(선택)` 또는 탭으로 구분한 형식
   //  - 또는 일본어 줄 다음 줄에 한국어 뜻(한국어가 먼저여도 된다)
+  //  - 줄 앞(또는 단독 줄)에 시간(`1:23`, `[1:02:03]`)이 있으면 start(초)로 저장한다.
+  //    유튜브 "스크립트 표시"를 그대로 복사해 붙여도 된다.
   function parseScript(text) {
-    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    // 시간 추출: 시간만 있는 줄은 다음 줄의 시간이 된다.
+    const entries = [];
+    let pending = null;
+    for (const raw of text.split(/\r?\n/)) {
+      const { time, text: t } = takeTime(raw.trim());
+      if (!raw.trim()) continue;
+      if (!t) { pending = time; continue; }
+      entries.push({ line: t, time: time ?? pending });
+      pending = null;
+    }
+
     const items = [];
     let skipped = 0;
 
-    const pushPair = (parts, speaker) => {
+    const pushPair = (parts, speaker, start) => {
       let [a, b, c] = parts;
       if (langOf(a) === 'ko' && langOf(b || '') !== 'ko') [a, b] = [b || '', a];
       if (!a || langOf(a) !== 'ja') { skipped++; return; }
-      items.push({ speaker, front: splitSpeaker(a).text, back: splitSpeaker(b || '').text, read: (c || '').trim() });
+      items.push({
+        speaker, front: splitSpeaker(a).text, back: splitSpeaker(b || '').text, read: (c || '').trim(), start
+      });
     };
 
     const sepOf = line => (line.includes('\t') ? '\t' : (line.includes('|') ? '|' : null));
 
     // 줄바꿈 형식: 처음 나온 언어를 "대표 언어"로 보고, 그 언어 줄마다 새 항목을 만든다.
-    const lead = lines.filter(l => !sepOf(l)).map(langOf).find(Boolean);
+    const lead = entries.filter(e => !sepOf(e.line)).map(e => langOf(e.line)).find(Boolean);
     let cur = null;
     const flush = () => {
       if (!cur) return;
       const ja = lead === 'ja' ? cur.lead : cur.other;
       const ko = lead === 'ja' ? cur.other : cur.lead;
-      if (ja) items.push({ speaker: cur.speaker, front: ja, back: ko || '', read: '' });
+      if (ja) items.push({ speaker: cur.speaker, front: ja, back: ko || '', read: '', start: cur.start });
       else skipped++;
       cur = null;
     };
 
-    for (const line of lines) {
+    for (const { line, time } of entries) {
       const sep = sepOf(line);
       if (sep) {
         flush();
         const parts = line.split(sep).map(p => p.trim());
         const sp = splitSpeaker(parts[0]);
         parts[0] = sp.text;
-        pushPair(parts, sp.speaker || splitSpeaker(parts[1] || '').speaker);
+        pushPair(parts, sp.speaker || splitSpeaker(parts[1] || '').speaker, time);
         continue;
       }
       const lang = langOf(line);
       if (!lang) { skipped++; continue; }
-      const { speaker, text: t } = splitSpeaker(line);
+      const sp = splitSpeaker(line);
+      const { speaker } = sp;
+      // "A: 0:03 문장" 처럼 화자 뒤에 시간이 올 수도 있다.
+      const after = takeTime(sp.text);
+      const t = after.text;
+      const at = time ?? after.time;
       if (lang === lead) {
         flush();
-        cur = { speaker, lead: t, other: '' };
+        cur = { speaker, lead: t, other: '', start: at };
       } else if (cur && !cur.other) {
         cur.other = t;
         if (!cur.speaker) cur.speaker = speaker;
@@ -292,7 +345,7 @@ const JP = (() => {
   const sameAnswer = (a, b) => normalize(a) === normalize(b);
 
   return {
-    parseScript, analyze, fallbackTokens, load, hangulReading, kanaToHangul, sameAnswer,
+    parseScript, parseTime, formatTime, videoId, analyze, fallbackTokens, load, hangulReading, kanaToHangul, sameAnswer,
     isLoaded: () => !!tokenizer
   };
 })();
