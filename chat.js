@@ -154,6 +154,100 @@ const speakJa = text => {
   window.speechSynthesis.speak(u);
 };
 
+// ---------- 음성 입력 ----------
+// 마이크로 녹음 → 16kHz 모노 WAV 로 변환 → Gemini 로 받아쓰기 → 입력창에 채운다(고쳐 보내기 가능).
+// MediaRecorder 의 webm/mp4 는 브라우저마다 달라서, Gemini 가 확실히 받는 WAV 로 직접 바꿔 보낸다.
+async function blobToWavBase64(blob) {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  const ctx = new Ctx();
+  let decoded;
+  try { decoded = await ctx.decodeAudioData(await blob.arrayBuffer()); } finally { ctx.close(); }
+
+  const rate = 16000;
+  const off = new OfflineAudioContext(1, Math.max(1, Math.ceil(decoded.duration * rate)), rate);
+  const src = off.createBufferSource();
+  src.buffer = decoded;
+  src.connect(off.destination);
+  src.start();
+  const pcm = (await off.startRendering()).getChannelData(0);
+
+  const view = new DataView(new ArrayBuffer(44 + pcm.length * 2));
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); view.setUint32(4, 36 + pcm.length * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true); str(36, 'data');
+  view.setUint32(40, pcm.length * 2, true);
+  for (let i = 0; i < pcm.length; i++) {
+    const v = Math.max(-1, Math.min(1, pcm[i]));
+    view.setInt16(44 + i * 2, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+  }
+  let bin = '';
+  const bytes = new Uint8Array(view.buffer);
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+async function transcribeAudio(blob) {
+  const data = await blobToWavBase64(blob);
+  return Gemini.generate({
+    system: 'Transcribe the speech exactly as spoken. The speaker is a Korean learner practicing Japanese '
+      + '(they may mix in Korean). Write Japanese in natural Japanese script and Korean in Hangul. '
+      + 'Output only the transcript, with no quotes or commentary. If there is no speech, output nothing.',
+    contents: [{ role: 'user', parts: [{ inlineData: { mimeType: 'audio/wav', data } }] }],
+    json: false, temperature: 0
+  });
+}
+
+// 마이크 버튼. 눌러서 녹음 시작, 다시 눌러서 끝내면 받아쓴 글이 input 에 들어간다.
+function micButton(input) {
+  const btn = h('button', { type: 'button', title: '음성으로 말하기', 'aria-label': '음성으로 말하기' }, '🎤');
+  if (!navigator.mediaDevices || !window.MediaRecorder) {
+    btn.disabled = true;
+    btn.title = '이 브라우저는 녹음을 지원하지 않아요';
+    return btn;
+  }
+  let rec = null;
+  const reset = () => { btn.disabled = false; btn.textContent = '🎤'; btn.classList.remove('recording'); };
+
+  btn.addEventListener('click', async () => {
+    if (rec) { rec.stop(); return; }
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      return toast('마이크를 쓸 수 없어요. 브라우저의 마이크 권한을 확인하세요.');
+    }
+    const chunks = [];
+    rec = new MediaRecorder(stream);
+    rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+    rec.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      const type = rec.mimeType;
+      rec = null;
+      btn.disabled = true;
+      btn.textContent = '…';
+      btn.classList.remove('recording');
+      try {
+        const text = (await transcribeAudio(new Blob(chunks, { type }))).trim();
+        if (text) {
+          input.value = (input.value ? input.value + ' ' : '') + text;
+          input.focus({ preventScroll: true });
+        } else {
+          toast('목소리가 잘 안 들렸어요. 다시 말해 보세요.');
+        }
+      } catch (e) {
+        toast(e.message || '음성을 글자로 바꾸지 못했어요.');
+      }
+      reset();
+    };
+    rec.start();
+    btn.textContent = '⏹';
+    btn.classList.add('recording');
+  });
+  return btn;
+}
+
 function parseChatReply(text) {
   try {
     const o = JSON.parse(text);
@@ -267,6 +361,7 @@ function renderChatRoom() {
       }, '새 대화')),
     log,
     h('div', { class: 'chat-input' }, input,
+      s.busy ? null : micButton(input),
       h('button', { class: 'primary', disabled: s.busy, onclick: send }, '보내기')));
 
   if (!s.busy) input.focus({ preventScroll: true });

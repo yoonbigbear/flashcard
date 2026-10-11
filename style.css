@@ -262,3 +262,5 @@ textarea:focus, input:focus { outline: 2px solid var(--primary); outline-offset:
   background: var(--bg); padding: 8px 0 4px;
 }
 .chat-input textarea { flex: 1; }
+.chat-input button.recording { background: var(--danger); color: #fff; animation: rec-pulse 1s infinite; }
+@keyframes rec-pulse { 50% { opacity: 0.6; } }
