@@ -78,23 +78,27 @@ function pronNodes(card) {
     .map(([label, v]) => h('div', { class: 'pron' }, h('span', { class: 'pron-label' }, label), v));
 }
 
+// 예시 문장 (있을 때만)
+const exampleNode = card => card.example ? h('div', { class: 'example' }, card.example) : null;
+
 // 카드 한 면의 내용. dir: 'f'(앞→뒤) | 'r'(뒤→앞)
 function faceNodes(card, dir, flipped) {
   if (card.type === 'sentence') {
     return flipped
-      ? [h('div', { class: 'q-small' }, card.front), h('div', null, card.back), pronNodes(card)]
+      ? [h('div', { class: 'q-small' }, card.front), h('div', null, card.back), pronNodes(card), exampleNode(card)]
       : [h('div', null, card.front)];
   }
   if (card.type === 'cloze') {
     return flipped
       ? [h('div', null, clozeNodes(card.front, true)),
-         card.back ? h('div', { class: 'q-small' }, card.back) : null]
+         card.back ? h('div', { class: 'q-small' }, card.back) : null,
+         exampleNode(card)]
       : [h('div', null, clozeNodes(card.front, false))];
   }
   const q = dir === 'r' ? card.back : card.front;
   const a = dir === 'r' ? card.front : card.back;
   return flipped
-    ? [h('div', { class: 'q-small' }, q), h('div', null, a)]
+    ? [h('div', { class: 'q-small' }, q), h('div', null, a), exampleNode(card)]
     : [h('div', null, q)];
 }
 
@@ -287,6 +291,9 @@ function cardForm(card) {
   const pronKo = h('input', { type: 'text', class: 'text-input', placeholder: '한국어 발음 (선택, 예: 곤니치와)' });
   pronKo.value = c.pronKo || '';
 
+  const example = h('textarea', { rows: '2', placeholder: '예시 문장 (선택)' });
+  example.value = c.example || '';
+
   const tags = h('input', { type: 'text', class: 'text-input', placeholder: '태그 (쉼표로 구분, 예: 명사, 시험)' });
   tags.value = c.tags.join(', ');
 
@@ -305,10 +312,10 @@ function cardForm(card) {
   }
   type.addEventListener('change', sync);
   sync();
-  if (isLine) { type.hidden = true; blankBtn.hidden = true; revLabel.hidden = true; pronJa.hidden = pronKo.hidden = true; }
+  if (isLine) { type.hidden = true; blankBtn.hidden = true; revLabel.hidden = true; pronJa.hidden = pronKo.hidden = true; example.hidden = true; }
 
   return {
-    el: h('div', { class: 'card-fields' }, type, front, blankBtn, back, pronJa, pronKo, isLine ? read : null, hasVideo ? start : null, tags, revLabel),
+    el: h('div', { class: 'card-fields' }, type, front, blankBtn, back, pronJa, pronKo, example, isLine ? read : null, hasVideo ? start : null, tags, revLabel),
     front,
     // 검증에 실패하면 null
     get() {
@@ -328,6 +335,7 @@ function cardForm(card) {
         reverse: !isCloze && !isSentence && rev.checked,
         pronJa: isSentence ? pronJa.value.trim() : '',
         pronKo: isSentence ? pronKo.value.trim() : '',
+        example: isLine ? '' : example.value.trim(),
         ...(isLine ? { read: read.value.trim() } : {}),
         ...(hasVideo ? { start: startSec } : {})
       };
@@ -432,7 +440,7 @@ async function renderDeck(deckId) {
     const q = search.value.trim().toLowerCase();
     listEl.replaceChildren();
     const shown = scoped.filter(c =>
-      !q || (c.front + ' ' + c.back + ' ' + (c.pronJa || '') + ' ' + (c.pronKo || '') + ' ' + c.tags.join(' '))
+      !q || (c.front + ' ' + c.back + ' ' + (c.pronJa || '') + ' ' + (c.pronKo || '') + ' ' + (c.example || '') + ' ' + c.tags.join(' '))
         .toLowerCase().includes(q));
     for (const c of shown) listEl.append(cardRow(c));
     if (!shown.length) {
@@ -473,6 +481,7 @@ function cardRow(c, extra) {
       h('div', { class: 'card-front' }, body),
       c.back ? h('div', { class: 'card-back' }, c.back) : null,
       c.type === 'sentence' ? pronNodes(c) : null,
+      exampleNode(c),
       h('div', { class: 'card-meta' },
         c.type === 'cloze' ? h('span', { class: 'tag kind' }, '빈칸') : null,
         c.type === 'sentence' ? h('span', { class: 'tag kind' }, '문장') : null,
@@ -494,10 +503,14 @@ function cardRow(c, extra) {
 }
 
 // ---------- 플래시카드 세션 (학습 / 오답노트 복습 공용) ----------
+const FLASH_BATCH = 20; // 한 번에 보여줄 카드 수
+
 function flashSession({ items, patchFn, onFinish }) {
-  const queue = shuffle(items);
-  const total = queue.length;
-  if (!total) return onFinish();
+  // 전체를 무작위로 섞은 뒤 FLASH_BATCH 장씩 나눠서 학습한다.
+  const pool = shuffle(items);
+  if (!pool.length) return onFinish();
+  let queue = pool.splice(0, FLASH_BATCH);
+  let total = queue.length;
 
   const bar = h('div', { class: 'progress' }, h('div', { class: 'progress-fill' }));
   const count = h('div', { class: 'progress-text' });
@@ -547,9 +560,23 @@ function flashSession({ items, patchFn, onFinish }) {
   function finish() {
     bar.firstChild.style.width = '100%';
     count.textContent = `${total} / ${total}`;
+    if (pool.length) {
+      stage.replaceChildren(
+        h('div', { class: 'done' }, '🎉', h('p', null, `${total}장 완료! 남은 카드 ${pool.length}장`)),
+        h('button', { class: 'primary big', onclick: nextBatch }, `다음 ${Math.min(FLASH_BATCH, pool.length)}장 계속`),
+        h('button', { class: 'big', onclick: onFinish }, '여기까지'));
+      return;
+    }
     stage.replaceChildren(
       h('div', { class: 'done' }, '🎉', h('p', null, '학습을 마쳤어요!')),
       h('button', { class: 'primary big', onclick: onFinish }, '돌아가기'));
+  }
+
+  function nextBatch() {
+    queue = pool.splice(0, FLASH_BATCH);
+    total = queue.length;
+    done = 0;
+    show();
   }
 
   show();

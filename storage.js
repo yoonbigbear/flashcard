@@ -4,6 +4,7 @@
 // card 필드
 //   type     'basic'(앞/뒤) | 'cloze'(front 안에 {{빈칸}} 표시) | 'sentence'(문장 + 뜻 + 발음)
 //   pronJa   일본어 발음 (sentence 전용, 선택),  pronKo  한국어 발음 (sentence 전용, 선택)
+//   example  예시 문장 (선택, 스크립트 줄 제외). 카드를 뒤집었을 때 함께 보여준다.
 //   tags     태그 배열
 //   reverse  양방향 여부 (basic 전용: 뒤→앞도 복습)
 //   box/due  앞→뒤(또는 빈칸) 복습 상태,  rbox/rdue  뒤→앞 복습 상태
@@ -13,7 +14,7 @@ const Store = (() => {
   const KEY = 'flashcard-data-v1';
 
   const normalizeCard = c => ({
-    type: 'basic', tags: [], reverse: false, pronJa: '', pronKo: '',
+    type: 'basic', tags: [], reverse: false, pronJa: '', pronKo: '', example: '',
     box: 0, due: 0, rbox: 0, rdue: 0,
     wrong: 0, note: false, streak: 0, updated: 0,
     ...c,

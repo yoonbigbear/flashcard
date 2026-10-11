@@ -112,6 +112,11 @@ textarea:focus, input:focus { outline: 2px solid var(--primary); outline-offset:
   font-size: 0.75rem; color: var(--primary); border: 1px solid var(--primary);
 }
 .flip-card .pron { font-size: 1rem; margin-top: 6px; }
+.example {
+  margin-top: 10px; padding-left: 10px; border-left: 3px solid var(--primary);
+  color: var(--muted); font-size: 0.95rem; font-weight: 400; text-align: left;
+  overflow-wrap: anywhere; white-space: pre-wrap;
+}
 
 /* 학습 */
 .progress { height: 6px; background: var(--border); border-radius: 999px; overflow: hidden; }
