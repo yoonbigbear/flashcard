@@ -6,16 +6,32 @@
 // Firestore 자체 오프라인 캐시가 있어서 오프라인 중 쓴 내용은 온라인이 되면 올라간다.
 // 데이터 위치: users/{uid}/decks/{id}, users/{uid}/cards/{id}
 //
-// 권한: OWNER_UID 계정으로 로그인했을 때만 편집(쓰기)할 수 있다.
-// 그 외(로그아웃 상태, 다른 계정)는 소유자의 데이터를 읽기 전용으로 받아 보기만 한다.
+// 계정별로 데이터가 분리된다.
+//   - 로그아웃(게스트): 소유자의 데이터를 읽기 전용으로 받아 보기만 한다. (오답노트 없음)
+//   - 소유자 계정: 소유자 데이터를 편집한다.
+//   - 그 밖의 구글 계정: users/{본인 uid} 의 본인 데이터를 편집한다. (소유자 데이터와 섞이지 않음)
+// 로컬 저장소도 같은 기준으로 나뉜다(Store.setScope).
 const cfg = window.FIREBASE_CONFIG;
 const OWNER_UID = window.OWNER_UID;
 const SDK_VERSION = '11.0.2';
 const SDK = `https://www.gstatic.com/firebasejs/${SDK_VERSION}/`;
 const COLLECTION = { deck: 'decks', card: 'cards' };
 
-// readOnly: 동기화가 켜져 있고 소유자가 아닐 때 true. (동기화 꺼짐 = 로컬 전용이라 false)
-const state = { enabled: !!cfg, user: null, syncing: false, error: '', readOnly: !!cfg && !!OWNER_UID };
+const GUEST_SCOPE = 'flashcard-guest-v1';
+const scopeFor = user =>
+  !user ? (OWNER_UID ? GUEST_SCOPE : Store.DEFAULT_SCOPE)
+    : user.uid === OWNER_UID ? Store.DEFAULT_SCOPE
+    : 'flashcard-user-' + user.uid;
+
+// 처음 방문한 기기는 로그인 확인 전까지 게스트로 본다.
+if (cfg && OWNER_UID && !Store.hasScopePointer()) Store.setScope(GUEST_SCOPE);
+
+// readOnly: 로그인하지 않은 게스트일 때 true. (동기화 꺼짐 = 로컬 전용이라 false)
+const state = {
+  enabled: !!cfg, user: null, syncing: false, error: '',
+  readOnly: !!cfg && !!OWNER_UID && localStorage.getItem('flashcard-scope-v1') === GUEST_SCOPE,
+  isOwner: false
+};
 const notify = () => window.dispatchEvent(new CustomEvent('sync-state'));
 
 window.Sync = {
@@ -137,11 +153,13 @@ async function start() {
   A.onAuthStateChanged(auth, user => {
     stop();
     state.user = user ? { name: user.displayName || '', email: user.email || '' } : null;
-    state.readOnly = !(user && user.uid === OWNER_UID);
+    state.isOwner = !!user && user.uid === OWNER_UID;
+    state.readOnly = !user && !!OWNER_UID;
     state.syncing = false;
+    Store.setScope(scopeFor(user)); // 계정에 맞는 로컬 데이터로 전환
     notify();
-    // 소유자면 양방향 동기화, 아니면 소유자 데이터를 읽기 전용으로 구독한다.
-    if (!state.readOnly) begin(user.uid, false);
+    // 로그인했으면 본인 데이터를 양방향 동기화, 게스트면 소유자 데이터를 읽기 전용으로 구독한다.
+    if (user) begin(user.uid, false);
     else if (OWNER_UID) begin(OWNER_UID, true);
   });
 

@@ -30,16 +30,19 @@ const Store = (() => {
 
   function load() {
     try {
-      const raw = localStorage.getItem(KEY);
+      const raw = localStorage.getItem(key);
       if (raw) return normalize(JSON.parse(raw));
     } catch (e) { /* 손상된 데이터는 빈 상태로 시작 */ }
     return { decks: [], cards: [] };
   }
 
+  // 저장 범위(scope): 소유자 / 게스트(소유자 데이터 보기) / 다른 계정별로 로컬 저장소를 분리한다.
+  const SCOPE_POINTER = 'flashcard-scope-v1';
+  let key = localStorage.getItem(SCOPE_POINTER) || KEY;
   let data = load();
 
   function save() {
-    localStorage.setItem(KEY, JSON.stringify(data));
+    localStorage.setItem(key, JSON.stringify(data));
   }
 
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -136,6 +139,16 @@ const Store = (() => {
     },
 
     // ----- 동기화용 -----
+    // 다른 저장 범위로 바꾼다. 기본 범위(KEY)는 기존 소유자 데이터가 들어 있는 곳이다.
+    DEFAULT_SCOPE: KEY,
+    hasScopePointer() { return !!localStorage.getItem(SCOPE_POINTER); },
+    setScope(next) {
+      if (next === key) return;
+      key = next;
+      localStorage.setItem(SCOPE_POINTER, key);
+      data = load();
+      remoteListeners.forEach(fn => { try { fn(); } catch (e) { /* 무시 */ } });
+    },
     onLocalWrite(fn) { writeListeners.push(fn); },
     onRemoteChange(fn) { remoteListeners.push(fn); },
     snapshot() {

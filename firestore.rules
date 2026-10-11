@@ -1,17 +1,19 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 데이터는 소유자(users/{OWNER_UID}/...) 한 곳에만 있다.
-    //  - 읽기: 누구나 (로그인 불필요, 게스트 읽기 전용)
-    //  - 쓰기: 소유자 계정으로 로그인했을 때만
-    // 다른 uid 경로는 읽기/쓰기 모두 막는다.
+    // 데이터는 계정별로 users/{uid}/... 에 따로 저장된다.
+    //  - 소유자(users/{OWNER_UID}): 누구나 읽기 가능(게스트 읽기 전용), 쓰기는 소유자만
+    //  - 그 밖의 계정: 본인 경로만 읽고 쓸 수 있다
     function isOwnerPath(uid) {
       return uid == 'BZ9tnw3zjtc7Jh75G1SBOBR8ckM2';
     }
+    function isSelf(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
 
     match /users/{uid}/{document=**} {
-      allow read: if isOwnerPath(uid);
-      allow write: if isOwnerPath(uid) && request.auth != null && request.auth.uid == uid;
+      allow read: if isOwnerPath(uid) || isSelf(uid);
+      allow write: if isSelf(uid);
     }
   }
 }

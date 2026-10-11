@@ -533,7 +533,7 @@ function runScript(deckId, lines, opts) {
     stage.replaceChildren(
       h('div', { class: 'done' }, right === total ? '🎉' : '👍',
         h('p', null, total ? `빈칸 ${total}개 중 ${right}개 정답` : '빈칸이 없었어요')),
-      total && right < total ? h('p', { class: 'hint' }, '틀린 줄은 오답노트에 담겼어요.') : null,
+      total && right < total && !isReadOnly() ? h('p', { class: 'hint' }, '틀린 줄은 오답노트에 담겼어요.') : null,
       h('button', { class: 'primary big', onclick: () => runScript(deckId, lines, opts) }, '다시 (새 빈칸)'),
       h('button', { onclick: () => render() }, '난이도 바꾸기'),
       h('button', { onclick: () => go({ deckId }) }, '덱으로 돌아가기'));

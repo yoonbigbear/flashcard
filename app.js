@@ -165,8 +165,12 @@ document.querySelectorAll('.tabbar button').forEach(b => {
 });
 
 async function render() {
-  document.querySelectorAll('.tabbar button').forEach(b =>
-    b.classList.toggle('active', b.dataset.tab === nav.tab));
+  // 게스트는 오답노트를 쓰지 않는다.
+  if (isReadOnly() && nav.tab === 'note') nav = { tab: 'decks', deckId: null, mode: null, tag: null, scriptId: null };
+  document.querySelectorAll('.tabbar button').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === nav.tab);
+    if (b.dataset.tab === 'note') b.hidden = isReadOnly();
+  });
   $view.replaceChildren();
   $view.scrollTop = 0;
 
@@ -679,7 +683,7 @@ async function renderQuiz(deckId) {
     stage.replaceChildren(
       h('div', { class: 'done' }, score === questions.length ? '🎉' : '👍',
         h('p', null, `${questions.length}문제 중 ${score}개 정답`)),
-      h('p', { class: 'hint' }, '틀린 문제는 오답노트에 담겼어요.'),
+      isReadOnly() ? null : h('p', { class: 'hint' }, '틀린 문제는 오답노트에 담겼어요.'),
       h('button', { class: 'primary big', onclick: () => render() }, '다시 풀기'),
       h('button', { onclick: () => go({ deckId, tag: nav.tag }) }, '덱으로 돌아가기'));
   }
@@ -763,7 +767,7 @@ async function renderMatch(deckId) {
     const sec = Math.round((Date.now() - started) / 1000);
     grid.replaceChildren(
       h('div', { class: 'done' }, '🎉', h('p', null, `${sec}초 · 실수 ${mistakes}번`)),
-      mistakes ? h('p', { class: 'hint' }, '헷갈린 카드는 오답노트에 담겼어요.') : null,
+      mistakes && !isReadOnly() ? h('p', { class: 'hint' }, '헷갈린 카드는 오답노트에 담겼어요.') : null,
       h('button', { class: 'primary big', onclick: () => render() }, '한 판 더'),
       h('button', { onclick: () => go({ deckId, tag: nav.tag }) }, '덱으로 돌아가기'));
   }
@@ -843,13 +847,15 @@ function renderSettings() {
         ? [
             h('p', null, `${sync.user.name || sync.user.email} 계정으로 로그인됨`
               + (sync.syncing ? ' · 동기화 중…' : ' · 동기화됨')),
-            sync.readOnly ? h('p', null, '이 계정은 읽기 전용이에요. 카드를 보고 학습만 할 수 있어요.') : null,
-            h('p', null, '로그아웃해도 이 기기의 카드는 그대로 남아 있어요.'),
+            h('p', null, sync.isOwner
+              ? '소유자 계정이에요. 이 기기의 카드가 클라우드와 동기화돼요.'
+              : '본인 계정의 데이터예요. 다른 사람의 카드와 섞이지 않고, 같은 계정으로 로그인한 기기끼리 동기화돼요.'),
+            h('p', null, '로그아웃하면 소유자의 카드를 읽기 전용으로 보게 돼요. 로그인한 계정의 카드는 다시 로그인하면 돌아와요.'),
             sync.error ? h('p', { class: 'error' }, sync.error) : null,
             h('button', { onclick: () => window.Sync.signOut() }, '로그아웃')
           ]
         : [
-            h('p', null, '지금은 읽기 전용이에요. 카드를 보고 학습만 할 수 있어요. 편집하려면 소유자 계정으로 로그인하세요.'),
+            h('p', null, '지금은 읽기 전용이에요. 카드를 보고 학습만 할 수 있어요. 본인 카드를 만들고 오답노트를 쓰려면 구글 계정으로 로그인하세요.'),
             sync.error ? h('p', { class: 'error' }, sync.error) : null,
             h('button', { class: 'primary', onclick: () => window.Sync.signIn() }, '구글로 로그인')
           ]));
