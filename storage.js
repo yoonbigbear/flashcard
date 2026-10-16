@@ -13,13 +13,18 @@
 const Store = (() => {
   const KEY = 'flashcard-data-v1';
 
-  const normalizeCard = c => ({
+  const CARD_DEFAULTS = {
     type: 'basic', tags: [], reverse: false, pronJa: '', pronKo: '', example: '',
     box: 0, due: 0, rbox: 0, rdue: 0,
-    wrong: 0, note: false, streak: 0, updated: 0,
-    ...c,
-    tags: Array.isArray(c.tags) ? c.tags : []
-  });
+    wrong: 0, note: false, streak: 0, updated: 0
+  };
+  // 클라우드/백업에서 null 로 들어온 값이 기본값을 덮어쓰지 않게, null 인 필드는 기본값으로 되돌린다.
+  const normalizeCard = c => {
+    const card = { ...CARD_DEFAULTS, ...c };
+    for (const k of Object.keys(CARD_DEFAULTS)) if (card[k] == null) card[k] = CARD_DEFAULTS[k];
+    card.tags = Array.isArray(card.tags) ? card.tags : [];
+    return card;
+  };
 
   function normalize(data) {
     return {

@@ -250,22 +250,3 @@ textarea:focus, input:focus { outline: 2px solid var(--primary); outline-offset:
 .listen-answer { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
 .listen-answer .script-text { line-height: 1.7; }
 
-/* AI 대화 */
-.chat { display: flex; flex-direction: column; gap: 10px; flex: 1; }
-.bubble { max-width: 88%; padding: 10px 14px; border-radius: 18px; overflow-wrap: anywhere; }
-.bubble.me { align-self: flex-end; background: var(--primary); color: var(--primary-text); border-bottom-right-radius: 4px; }
-.bubble.ai { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
-.bubble.fix { align-self: flex-end; background: var(--surface); border: 1px dashed var(--ok); }
-.ai-text { font-size: 1.15rem; line-height: 1.7; }
-.fix-title { font-size: 0.85rem; color: var(--ok); font-weight: 600; }
-.fix-text { font-size: 1.1rem; font-weight: 600; margin: 2px 0; }
-.bubble .row { margin-top: 8px; }
-.bubble .row > button { flex: none; padding: 4px 12px; font-size: 0.9rem; }
-.bubble .error { color: var(--danger); margin-bottom: 8px; }
-.chat-input {
-  position: sticky; bottom: 0; display: flex; gap: 8px; align-items: flex-end;
-  background: var(--bg); padding: 8px 0 4px;
-}
-.chat-input textarea { flex: 1; }
-.chat-input button.recording { background: var(--danger); color: #fff; animation: rec-pulse 1s infinite; }
-@keyframes rec-pulse { 50% { opacity: 0.6; } }
