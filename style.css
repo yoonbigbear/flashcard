@@ -114,6 +114,10 @@ textarea:focus, input:focus { outline: 2px solid var(--primary); outline-offset:
   font-size: 0.75rem; color: var(--primary); border: 1px solid var(--primary);
 }
 .flip-card .pron { font-size: 1rem; margin-top: 6px; }
+.example-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.example-row { display: flex; align-items: center; gap: 4px; }
+.example-row .text-input { flex: 1; min-width: 0; }
+.example + .example { margin-top: 6px; }
 .example {
   margin-top: 10px; padding-left: 10px; border-left: 3px solid var(--primary);
   color: var(--muted); font-size: 0.95rem; font-weight: 400; text-align: left;

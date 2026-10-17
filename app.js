@@ -78,8 +78,12 @@ function pronNodes(card) {
     .map(([label, v]) => h('div', { class: 'pron' }, h('span', { class: 'pron-label' }, label), v));
 }
 
-// 예시 문장 (있을 때만)
-const exampleNode = card => card.example ? h('div', { class: 'example' }, card.example) : null;
+// 예시 문장 (있을 때만). 여러 개는 example 에 한 줄씩 저장하고, 한 줄마다 따로 보여준다.
+const exampleList = card => (card.example || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+const exampleNode = card => {
+  const list = exampleList(card);
+  return list.length ? list.map(s => h('div', { class: 'example' }, s)) : null;
+};
 
 // 카드 한 면의 내용. dir: 'f'(앞→뒤) | 'r'(뒤→앞)
 function faceNodes(card, dir, flipped) {
@@ -295,8 +299,36 @@ function cardForm(card) {
   const pronKo = h('input', { type: 'text', class: 'text-input', placeholder: '한국어 발음 (선택, 예: 곤니치와)' });
   pronKo.value = c.pronKo || '';
 
-  const example = h('textarea', { rows: '2', placeholder: '예시 문장 (선택)' });
-  example.value = c.example || '';
+  // 예시 문장: 입력칸을 필요한 만큼 늘릴 수 있다. 저장할 때 한 줄에 하나씩 합친다.
+  const exampleRows = h('div', { class: 'example-rows' });
+  const exampleInputs = [];
+  const addExample = (value = '') => {
+    const input = h('input', { type: 'text', class: 'text-input', placeholder: '예시 문장 (선택)' });
+    input.value = value;
+    const del = h('button', {
+      type: 'button', class: 'icon-btn', 'aria-label': '예시 문장 삭제',
+      onclick: () => {
+        if (exampleInputs.length === 1) { input.value = ''; return; }
+        exampleInputs.splice(exampleInputs.indexOf(input), 1);
+        row.remove();
+      }
+    }, '✕');
+    // Enter 로 다음 예시 칸을 연다 (한글 조합 중에는 제외)
+    input.addEventListener('keydown', e => {
+      if (e.key !== 'Enter' || e.isComposing) return;
+      e.preventDefault();
+      const next = exampleInputs[exampleInputs.indexOf(input) + 1];
+      if (next) next.focus(); else addExample().focus();
+    });
+    const row = h('div', { class: 'example-row' }, input, del);
+    exampleInputs.push(input);
+    exampleRows.append(row);
+    return input;
+  };
+  const initialExamples = exampleList(c);
+  (initialExamples.length ? initialExamples : ['']).forEach(addExample);
+  const example = h('div', { class: 'example-field' }, exampleRows,
+    h('button', { type: 'button', onclick: () => addExample().focus() }, '+ 예시 문장 추가'));
 
   const tags = h('input', { type: 'text', class: 'text-input', placeholder: '태그 (쉼표로 구분, 예: 명사, 시험)' });
   tags.value = c.tags.join(', ');
@@ -339,7 +371,7 @@ function cardForm(card) {
         reverse: !isCloze && !isSentence && rev.checked,
         pronJa: isSentence ? pronJa.value.trim() : '',
         pronKo: isSentence ? pronKo.value.trim() : '',
-        example: isLine ? '' : example.value.trim(),
+        example: isLine ? '' : exampleInputs.map(i => i.value.trim()).filter(Boolean).join('\n'),
         ...(isLine ? { read: read.value.trim() } : {}),
         ...(hasVideo ? { start: startSec } : {})
       };
