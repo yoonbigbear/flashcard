@@ -25,6 +25,9 @@ function h(tag, attrs, ...children) {
   return el;
 }
 
+// 네이티브 append() 는 null 을 "null" 글자로, 배열을 통째로 문자열로 바꾼다. h() 처럼 걸러서 붙인다.
+const appendAll = (parent, ...kids) => parent.append(...kids.flat(Infinity).filter(k => k != null && k !== false));
+
 function toast(msg) {
   $toast.textContent = msg;
   $toast.hidden = false;
@@ -696,7 +699,7 @@ function flashSession({ items, patchFn, onFinish }) {
     });
 
     const label = dir === 'r' ? '뒤 → 앞' : null;
-    stage.append(
+    appendAll(stage,
       label ? h('div', { class: 'dir-label' }, label) : null,
       flipCard,
       card.tags.length ? h('div', { class: 'study-tags' }, card.tags.map(t => h('span', { class: 'tag' }, '#' + t))) : null,
@@ -829,7 +832,7 @@ async function renderQuiz(deckId) {
       if (star) star.hidden = false;
     }
 
-    stage.append(h('div', { class: 'quiz-q' }, q.prompt), h('div', { class: 'options' }, buttons), star, next);
+    appendAll(stage, h('div', { class: 'quiz-q' }, q.prompt), h('div', { class: 'options' }, buttons), star, next);
   }
 
   function finish() {
@@ -970,7 +973,7 @@ async function renderSearch() {
           .sort((a, b) => sims.get(b.id) - sims.get(a.id))
           .slice(0, SEMANTIC_LIMIT);
         if (!more.length) return;
-        semEl.append(h('p', { class: 'hint' }, '뜻이 비슷한 카드'),
+        appendAll(semEl, h('p', { class: 'hint' }, '뜻이 비슷한 카드'),
           more.map(c => cardRow(c, [deckChip(c), h('span', { class: 'tag' }, `의미 ${Math.round(sims.get(c.id) * 100)}%`)])));
       } catch (e) {
         if (mine === seq) info.textContent = '의미 검색을 쓸 수 없어요: ' + e.message;
