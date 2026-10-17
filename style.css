@@ -44,6 +44,8 @@ main {
   padding: 16px 16px 96px;
   display: flex; flex-direction: column; gap: 12px;
 }
+/* 내용이 길어져도 칩 줄 같은 항목이 찌그러지지 않게 한다 (.stage 처럼 flex 를 직접 지정한 건 그대로) */
+main > * { flex-shrink: 0; }
 
 .tabbar {
   display: flex; background: var(--surface); border-top: 1px solid var(--border);
