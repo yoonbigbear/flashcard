@@ -130,6 +130,10 @@ textarea:focus, input:focus { outline: 2px solid var(--primary); outline-offset:
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08); transition: transform 0.3s, background 0.3s;
 }
 .flip-card.flipped { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
+/* 뒤집힌 카드(파란 배경)에서는 예문·발음이 묻히지 않게 본문색을 따른다 */
+.flip-card.flipped .example, .flip-card.flipped .pron { color: var(--primary-text); }
+.flip-card.flipped .example { border-left-color: var(--primary-text); opacity: 0.95; }
+.flip-card.flipped .pron-label { color: var(--primary-text); border-color: var(--primary-text); }
 .hint { color: var(--muted); text-align: center; margin: 0; font-size: 0.9rem; }
 .rate { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .rate button { padding: 16px 0; font-size: 1.05rem; }

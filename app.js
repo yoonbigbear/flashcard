@@ -477,6 +477,29 @@ function deckManageRow(deck, cardCount) {
     }, '덱 삭제'));
 }
 
+async function moveCardDialog(card) {
+  const decks = (await Store.listDecks()).filter(d => d.id !== card.deckId);
+  if (!decks.length) return toast('옮길 다른 덱이 없어요');
+  const sel = h('select', { 'aria-label': '이동할 덱' }, decks.map(d => h('option', { value: d.id }, d.name)));
+  const dlg = h('dialog', { class: 'dialog' },
+    h('h2', null, '다른 덱으로 이동'),
+    sel,
+    h('div', { class: 'row' },
+      h('button', { type: 'button', onclick: () => dlg.close() }, '취소'),
+      h('button', {
+        type: 'button', class: 'primary',
+        onclick: async () => {
+          await Store.updateCard(card.id, { deckId: sel.value });
+          dlg.close();
+          toast('이동됨');
+          render();
+        }
+      }, '이동')));
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg);
+  dlg.showModal();
+}
+
 function cardRow(c, extra) {
   const body = c.type === 'cloze' ? clozeNodes(c.front, true) : c.front;
   return h('div', { class: 'card-row' },
@@ -495,6 +518,7 @@ function cardRow(c, extra) {
         extra || null)),
     isReadOnly() ? null : h('div', { class: 'card-actions' },
       h('button', { class: 'icon-btn', 'aria-label': '수정', onclick: () => editCard(c, render) }, '✎'),
+      h('button', { class: 'icon-btn', 'aria-label': '다른 덱으로 이동', onclick: () => moveCardDialog(c) }, '⇄'),
       h('button', {
         class: 'icon-btn', 'aria-label': '삭제',
         onclick: async () => {
