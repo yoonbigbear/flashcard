@@ -489,7 +489,8 @@ async function renderDeck(deckId) {
       h('button', {
         disabled: basicCount < 2,
         onclick: () => go({ deckId, tag, mode: 'match' })
-      }, '매칭 게임')));
+      }, '매칭 게임'),
+      allTags.length ? h('button', { onclick: () => tagStudyDialog(deckId, cards) }, '태그별 학습') : null));
 
   // 카드 추가 폼 (게스트는 숨김, 모음 덱에서는 추가하지 않는다)
   if (!isReadOnly() && deckId !== STARRED) {
@@ -527,6 +528,27 @@ async function renderDeck(deckId) {
 
   // 덱 관리 (게스트는 숨김, 모음 덱은 이름 변경·삭제 없음)
   if (!isReadOnly() && deckId !== STARRED) $view.append(deckManageRow(deck, everything.length));
+}
+
+// 태그를 골라 그 태그의 카드만 학습한다. (덱 화면의 태그 칩으로 걸러 둔 것과 같은 학습)
+function tagStudyDialog(deckId, cards) {
+  const tags = unique(cards.flatMap(c => c.tags)).sort();
+  const dlg = h('dialog', { class: 'dialog' },
+    h('h2', null, '태그별 학습'),
+    h('div', { class: 'list' }, tags.map(t => {
+      const scoped = cards.filter(c => c.tags.includes(t));
+      const due = dueItems(scoped).length;
+      return h('button', {
+        type: 'button', class: 'related-item', disabled: due === 0,
+        onclick: () => { dlg.close(); go({ deckId, tag: t, mode: 'study' }); }
+      },
+        h('div', { class: 'card-front' }, '#' + t),
+        h('div', { class: 'card-back' }, due ? `복습 ${due}장 · 전체 ${scoped.length}장` : `오늘 복습할 카드 없음 · 전체 ${scoped.length}장`));
+    })),
+    h('div', { class: 'row' }, h('button', { type: 'button', onclick: () => dlg.close() }, '닫기')));
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg);
+  dlg.showModal();
 }
 
 function deckManageRow(deck, cardCount) {

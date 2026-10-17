@@ -1,5 +1,5 @@
 // 앱 파일을 수정해서 배포할 때마다 CACHE 버전을 올려야 폰에 새 버전이 반영된다.
-const CACHE = 'flashcard-v26';
+const CACHE = 'flashcard-v27';
 // 일본어 사전(약 17MB)은 앱 버전이 바뀌어도 다시 받지 않도록 별도 캐시에 둔다.
 const DICT_CACHE = 'flashcard-dict-v1';
 const FILES = [
@@ -67,9 +67,10 @@ self.addEventListener('fetch', e => {
   // 그 외 외부 요청(Firestore, 구글 로그인 등)은 건드리지 않는다.
   if (url.origin !== location.origin) return;
 
-  // 네트워크 우선(항상 최신 버전), 오프라인이면 캐시
+  // 네트워크 우선(항상 최신 버전), 오프라인이면 캐시.
+  // no-cache: 브라우저 HTTP 캐시(GitHub Pages 는 max-age=600)가 아니라 서버에 최신인지 물어서 받는다.
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' })
       .then(res => {
         if (res.ok) {
           const copy = res.clone();
