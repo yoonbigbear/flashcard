@@ -102,8 +102,10 @@ function pronNodes(card) {
     .map(([label, v]) => h('div', { class: 'pron' }, h('span', { class: 'pron-label' }, label), v));
 }
 
-// 예시 문장 (있을 때만). 여러 개는 example 에 한 줄씩 저장하고, 한 줄마다 따로 보여준다.
-const exampleList = card => (card.example || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+// 예시 문장 (있을 때만). 여러 개는 example 에 빈 줄로 구분해 저장하고, 하나마다 따로 보여준다.
+// 예시 하나 안에서는 줄바꿈을 쓸 수 있다.
+const EXAMPLE_SEP = '\n\n';
+const exampleList = card => (card.example || '').split(/\r?\n\s*\r?\n/).map(s => s.trim()).filter(Boolean);
 const exampleNode = card => {
   const list = exampleList(card);
   return list.length ? list.map(s => h('div', { class: 'example' }, s)) : null;
@@ -332,11 +334,11 @@ function cardForm(card) {
   const pronKo = h('input', { type: 'text', class: 'text-input', placeholder: '한국어 발음 (선택, 예: 곤니치와)' });
   pronKo.value = c.pronKo || '';
 
-  // 예시 문장: 입력칸을 필요한 만큼 늘릴 수 있다. 저장할 때 한 줄에 하나씩 합친다.
+  // 예시 문장: 입력칸을 필요한 만큼 늘릴 수 있다. 저장할 때 빈 줄로 구분해 합친다.
   const exampleRows = h('div', { class: 'example-rows' });
   const exampleInputs = [];
   const addExample = (value = '') => {
-    const input = h('input', { type: 'text', class: 'text-input', placeholder: '예시 문장 (선택)' });
+    const input = h('textarea', { rows: '2', placeholder: '예시 문장 (선택, 여러 줄 가능)' });
     input.value = value;
     const del = h('button', {
       type: 'button', class: 'icon-btn', 'aria-label': '예시 문장 삭제',
@@ -346,13 +348,6 @@ function cardForm(card) {
         row.remove();
       }
     }, '✕');
-    // Enter 로 다음 예시 칸을 연다 (한글 조합 중에는 제외)
-    input.addEventListener('keydown', e => {
-      if (e.key !== 'Enter' || e.isComposing) return;
-      e.preventDefault();
-      const next = exampleInputs[exampleInputs.indexOf(input) + 1];
-      if (next) next.focus(); else addExample().focus();
-    });
     const row = h('div', { class: 'example-row' }, input, del);
     exampleInputs.push(input);
     exampleRows.append(row);
@@ -409,7 +404,7 @@ function cardForm(card) {
         pronJa: isSentence ? pronJa.value.trim() : '',
         pronKo: isSentence ? pronKo.value.trim() : '',
         ...(isLine ? {} : { star: starCheck.checked }),
-        example: isLine ? '' : exampleInputs.map(i => i.value.trim()).filter(Boolean).join('\n'),
+        example: isLine ? '' : exampleInputs.map(i => i.value.trim().replace(/\n\s*\n+/g, '\n')).filter(Boolean).join(EXAMPLE_SEP),
         ...(isLine ? { read: read.value.trim() } : {}),
         ...(hasVideo ? { start: startSec } : {})
       };
