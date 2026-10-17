@@ -175,6 +175,7 @@ async function render() {
   $view.scrollTop = 0;
 
   if (nav.tab === 'settings') return renderSettings();
+  if (nav.tab === 'search') return renderSearch();
   if (nav.tab === 'note') return nav.mode === 'study' ? renderNoteStudy() : renderNote();
   if (nav.deckId) {
     if (nav.mode === 'study') return renderStudy(nav.deckId);
@@ -440,11 +441,8 @@ async function renderDeck(deckId) {
   const listEl = h('div', { class: 'list' });
   const search = h('input', { type: 'search', placeholder: '카드 검색 (내용, 태그)', class: 'search' });
   const paint = () => {
-    const q = search.value.trim().toLowerCase();
     listEl.replaceChildren();
-    const shown = scoped.filter(c =>
-      !q || (c.front + ' ' + c.back + ' ' + (c.pronJa || '') + ' ' + (c.pronKo || '') + ' ' + (c.example || '') + ' ' + c.tags.join(' '))
-        .toLowerCase().includes(q));
+    const shown = Search.filter(scoped, search.value);
     for (const c of shown) listEl.append(cardRow(c));
     if (!shown.length) {
       listEl.append(h('p', { class: 'empty' }, scoped.length ? '검색 결과가 없어요.'
@@ -795,6 +793,47 @@ async function renderMatch(deckId) {
       h('button', { class: 'primary big', onclick: () => render() }, '한 판 더'),
       h('button', { onclick: () => go({ deckId, tag: nav.tag }) }, '덱으로 돌아가기'));
   }
+}
+
+// ---------- 전체 검색 ----------
+const SEARCH_LIMIT = 100;
+let lastQuery = '';
+
+async function renderSearch() {
+  setHeader('검색');
+  const [cards, decks] = await Promise.all([Store.listAllCards(), Store.listDecks()]);
+  const names = new Map(decks.map(d => [d.id, d.name]));
+  const pool = cards.filter(c => names.has(c.deckId));
+
+  const input = h('input', {
+    type: 'search', class: 'search', value: lastQuery,
+    placeholder: '한글 · English · 日本語 · romaji 로 검색',
+    autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false'
+  });
+  const info = h('p', { class: 'hint' });
+  const listEl = h('div', { class: 'list' });
+
+  const paint = () => {
+    lastQuery = input.value;
+    listEl.replaceChildren();
+    if (!input.value.trim()) {
+      info.textContent = `카드 ${pool.length}장 전체에서 찾아요. 뜻·발음·예문·태그 어디에 있어도 나와요.`;
+      return;
+    }
+    const found = Search.filter(pool, input.value, names);
+    info.textContent = found.length ? `${found.length}장` : '검색 결과가 없어요.';
+    for (const c of found.slice(0, SEARCH_LIMIT)) {
+      listEl.append(cardRow(c, h('button', {
+        class: 'tag kind', type: 'button', onclick: () => go({ deckId: c.deckId })
+      }, names.get(c.deckId))));
+    }
+    if (found.length > SEARCH_LIMIT) {
+      listEl.append(h('p', { class: 'hint' }, `처음 ${SEARCH_LIMIT}장만 보여줘요. 검색어를 더 적어 보세요.`));
+    }
+  };
+  input.addEventListener('input', paint);
+  $view.append(input, info, listEl);
+  paint();
 }
 
 // ---------- 오답노트 ----------

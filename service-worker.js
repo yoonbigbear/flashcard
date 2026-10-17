@@ -1,5 +1,5 @@
 // 앱 파일을 수정해서 배포할 때마다 CACHE 버전을 올려야 폰에 새 버전이 반영된다.
-const CACHE = 'flashcard-v18';
+const CACHE = 'flashcard-v19';
 // 일본어 사전(약 17MB)은 앱 버전이 바뀌어도 다시 받지 않도록 별도 캐시에 둔다.
 const DICT_CACHE = 'flashcard-dict-v1';
 const FILES = [
@@ -9,6 +9,7 @@ const FILES = [
   'app.js',
   'storage.js',
   'japanese.js',
+  'search.js',
   'script.js',
   'sync.js',
   'firebase-config.js',
