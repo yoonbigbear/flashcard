@@ -60,7 +60,9 @@ const Search = (() => {
       if (next === c && !VOWEL.test(c) && c !== 'n') { out += 'っ'; i++; continue; }
       // n: 모음·y 가 따라오지 않으면 ん
       if (c === 'n') {
-        if (next === 'n' || next === "'") { out += 'ん'; i += 2; continue; }
+        // nn / n' → ん. 단, konnichiwa 처럼 nn 뒤에 모음이 오면 뒤의 n 은 다음 글자(に)의 것이다.
+        if (next === "'") { out += 'ん'; i += 2; continue; }
+        if (next === 'n') { out += 'ん'; i += /[aiueoy]/.test(s[i + 2] || '') ? 1 : 2; continue; }
         if (next && !VOWEL.test(next) && next !== 'y') { out += 'ん'; i++; continue; }
       }
       let hit = false;
@@ -127,5 +129,86 @@ const Search = (() => {
     return cards.filter(c => q.test(haystack(c, deckNames && deckNames.get(c.deckId))));
   }
 
-  return { filter, norm, romajiToKana };
+  // ---------- 관련 카드 ----------
+  // 카테고리가 없어도 카드 내용만으로 비슷한 카드를 점수로 찾는다.
+  //   태그 · 같은 스크립트 · 같은 한자 · 같은 일본어 단어 · 같은 뜻(한글/영어) 단어 ·
+  //   다른 카드의 문장/예문 안에 이 카드의 단어가 들어 있음
+  const KANJI = /[㐀-鿿]/;
+  const plain = s => String(s || '').replace(/\{\{(.+?)\}\}/g, '$1');
+
+  // 문장 안에서 "이 카드의 핵심 단어": 빈칸 문장은 빈칸 정답, 나머지는 앞면 전체 (2글자 이상)
+  const keyTerms = c => {
+    const blanks = [...String(c.front || '').matchAll(/\{\{(.+?)\}\}/g)].map(m => m[1].trim());
+    return (blanks.length ? blanks : [String(c.front || '').trim()]).filter(t => [...t].length >= 2);
+  };
+
+  // 카드가 수정되기 전까지는 분석 결과를 재사용한다 (관련 카드를 열 때마다 모든 카드를 분석하지 않도록)
+  const featureCache = new Map();
+  function features(c) {
+    const hit = featureCache.get(c.id);
+    if (hit && hit.updated === c.updated) return hit.f;
+    const f = computeFeatures(c);
+    featureCache.set(c.id, { updated: c.updated, f });
+    return f;
+  }
+
+  function computeFeatures(c) {
+    const front = plain(c.front);
+    const ja = new Set();
+    const tokens = Array.isArray(c.tokens) && c.tokens.length ? c.tokens : JP.analyze(front);
+    for (const t of tokens) if (t.k === 2 && (t.s.length >= 2 || KANJI.test(t.s))) ja.add(t.s);
+    // 뜻 쪽 단어: 한글 단어는 '다'를 떼어 어간으로 맞춘다 (먹다 ↔ 먹기)
+    const words = new Set();
+    for (const w of `${front} ${c.back || ''}`.match(/[가-힣]{2,}|[a-z]{3,}/gi) || []) {
+      const lw = w.toLowerCase();
+      words.add(/[가-힣]/.test(lw) && lw.endsWith('다') && lw.length > 2 ? lw.slice(0, -1) : lw);
+    }
+    return {
+      tags: new Set(c.tags || []),
+      kanji: new Set(front.match(/[㐀-鿿]/g) || []),
+      ja, words,
+      terms: keyTerms(c),
+      text: `${front} ${c.example || ''}`
+    };
+  }
+
+  const shared = (a, b) => [...a].filter(x => b.has(x));
+
+  // 뜻 유사도(임베딩, embed.js)가 이 값 이상이면 관련 있다고 본다. 0.55 → 4점, 0.85 → 10점.
+  // 실측: 犬↔猫 0.52, 동물↔犬 0.63, 동물↔電車 0.53, 무관한 짧은 단어 쌍은 0.25~0.46.
+  const SEMANTIC_MIN = 0.55;
+
+  // card 와 관련 있는 카드를 점수 높은 순으로. [{ card, score, reasons: [...] }]
+  // semantic: Map(카드 id → 뜻 유사도). 의미 검색을 켠 경우에만 넘어온다.
+  function related(card, cards, semantic = null, minScore = 4) {
+    const a = features(card);
+    const out = [];
+    for (const c of cards) {
+      if (c.id === card.id) continue;
+      const b = features(c);
+      let score = 0;
+      const reasons = [];
+      const add = (pts, label) => { score += pts; if (label) reasons.push(label); };
+
+      const tags = shared(a.tags, b.tags);
+      if (tags.length) add(Math.min(tags.length * 4, 8), tags.map(t => '#' + t).join(' '));
+      if (card.script && card.script === c.script) add(6, '같은 스크립트');
+      const kanji = shared(a.kanji, b.kanji);
+      if (kanji.length) add(Math.min(kanji.length * 3, 9), '한자 ' + kanji.join(''));
+      const ja = shared(a.ja, b.ja);
+      if (ja.length) add(Math.min(ja.length * 4, 8), ja.slice(0, 3).join(' · '));
+      const words = shared(a.words, b.words);
+      if (words.length) add(Math.min(words.length * 3, 6), words.slice(0, 3).join(' · '));
+      // 서로의 문장/예문 안에 상대 단어가 들어 있으면 가장 직접적인 관계
+      if (a.terms.some(t => b.text.includes(t)) || b.terms.some(t => a.text.includes(t))) add(6, '문장에 포함');
+      const sim = semantic && semantic.get(c.id);
+      if (sim >= SEMANTIC_MIN) add(Math.min(10, Math.round((sim - 0.35) * 20)), `의미 ${Math.round(sim * 100)}%`);
+      if (card.deckId === c.deckId && score) add(1);
+
+      if (score >= minScore) out.push({ card: c, score, reasons });
+    }
+    return out.sort((x, y) => y.score - x.score);
+  }
+
+  return { filter, related, norm, romajiToKana, SEMANTIC_MIN };
 })();

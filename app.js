@@ -46,6 +46,27 @@ const shuffle = arr => {
 };
 const unique = arr => [...new Set(arr)];
 
+// '꼭 외울 것' 모음: 모든 덱에서 별표한 카드를 모아 보여주는 가상 덱. 카드는 원래 덱에 그대로 있다.
+const STARRED = '__starred__';
+const STARRED_NAME = '★ 꼭 외울 것';
+async function deckCards(deckId) {
+  if (deckId !== STARRED) return Store.listCards(deckId);
+  const [cards, decks] = await Promise.all([Store.listAllCards(), Store.listDecks()]);
+  const ids = new Set(decks.map(d => d.id));
+  return cards.filter(c => c.star && !c.script && ids.has(c.deckId));
+}
+const toggleStar = card => applyPatch(card, { star: !card.star });
+const starLabel = card => (card.star ? '★ 꼭 외울 것' : '☆ 꼭 외우기');
+// 학습·퀴즈 중 카드 아래에 띄우는 별표 토글 버튼 (게스트·스크립트 줄은 없음)
+function starButton(card, hidden) {
+  if (isReadOnly() || card.script) return null;
+  const btn = h('button', {
+    class: 'related-btn', hidden,
+    onclick: async () => { await toggleStar(card); btn.textContent = starLabel(card); }
+  }, starLabel(card));
+  return btn;
+}
+
 const endOfToday = () => { const d = new Date(); d.setHours(23, 59, 59, 999); return d.getTime(); };
 
 // ---------- 빈칸(cloze) 문장 ----------
@@ -203,6 +224,15 @@ async function renderDecks() {
   const decks = await Store.listDecks();
   const list = h('div', { class: 'list' });
 
+  const starred = await deckCards(STARRED);
+  if (starred.length) {
+    const due = dueItems(starred).length;
+    list.append(h('button', { class: 'deck-item', onclick: () => go({ deckId: STARRED }) },
+      h('div', { class: 'deck-name' }, STARRED_NAME),
+      h('div', { class: 'deck-meta' }, `카드 ${starred.length}장`,
+        due > 0 ? h('span', { class: 'badge' }, `복습 ${due}`) : null)));
+  }
+
   for (const deck of decks) {
     const cards = await Store.listCards(deck.id);
     const due = dueItems(cards).length;
@@ -337,6 +367,10 @@ function cardForm(card) {
   rev.checked = c.reverse;
   const revLabel = h('label', { class: 'check' }, rev, '양방향 (뒤→앞도 복습)');
 
+  const starCheck = h('input', { type: 'checkbox' });
+  starCheck.checked = !!c.star;
+  const starRow = h('label', { class: 'check' }, starCheck, '★ 꼭 외울 것');
+
   function sync() {
     const cloze = type.value === 'cloze';
     const sentence = type.value === 'sentence';
@@ -348,10 +382,10 @@ function cardForm(card) {
   }
   type.addEventListener('change', sync);
   sync();
-  if (isLine) { type.hidden = true; blankBtn.hidden = true; revLabel.hidden = true; pronJa.hidden = pronKo.hidden = true; example.hidden = true; }
+  if (isLine) { type.hidden = true; blankBtn.hidden = true; revLabel.hidden = true; pronJa.hidden = pronKo.hidden = true; example.hidden = true; starRow.hidden = true; }
 
   return {
-    el: h('div', { class: 'card-fields' }, type, front, blankBtn, back, pronJa, pronKo, example, isLine ? read : null, hasVideo ? start : null, tags, revLabel),
+    el: h('div', { class: 'card-fields' }, type, front, blankBtn, back, pronJa, pronKo, example, isLine ? read : null, hasVideo ? start : null, tags, revLabel, starRow),
     front,
     // 검증에 실패하면 null
     get() {
@@ -371,6 +405,7 @@ function cardForm(card) {
         reverse: !isCloze && !isSentence && rev.checked,
         pronJa: isSentence ? pronJa.value.trim() : '',
         pronKo: isSentence ? pronKo.value.trim() : '',
+        ...(isLine ? {} : { star: starCheck.checked }),
         example: isLine ? '' : exampleInputs.map(i => i.value.trim()).filter(Boolean).join('\n'),
         ...(isLine ? { read: read.value.trim() } : {}),
         ...(hasVideo ? { start: startSec } : {})
@@ -405,12 +440,14 @@ function editCard(card, onDone) {
 
 // ---------- 덱 상세 ----------
 async function renderDeck(deckId) {
-  const deck = (await Store.listDecks()).find(d => d.id === deckId);
+  const decks = await Store.listDecks();
+  const deck = deckId === STARRED ? { id: STARRED, name: STARRED_NAME } : decks.find(d => d.id === deckId);
   if (!deck) return go({});
+  const deckNames = deckId === STARRED ? new Map(decks.map(d => [d.id, d.name])) : null;
   setHeader(deck.name, {});
 
   // 대화 스크립트의 줄은 스크립트 영역에서 따로 다루고, 일반 카드 목록·학습에서는 뺀다.
-  const everything = await Store.listCards(deckId);
+  const everything = await deckCards(deckId);
   const lineCards = everything.filter(c => c.script);
   const cards = everything.filter(c => !c.script).sort((a, b) => b.created - a.created);
   const tag = nav.tag;
@@ -451,8 +488,8 @@ async function renderDeck(deckId) {
         onclick: () => go({ deckId, tag, mode: 'match' })
       }, '매칭 게임')));
 
-  // 카드 추가 폼 (게스트는 숨김)
-  if (!isReadOnly()) {
+  // 카드 추가 폼 (게스트는 숨김, 모음 덱에서는 추가하지 않는다)
+  if (!isReadOnly() && deckId !== STARRED) {
     const form = cardForm({ type: formMemo.type, front: '', back: '', tags: formMemo.tags, reverse: formMemo.reverse });
     const addBtn = h('button', {
       type: 'button', class: 'primary',
@@ -475,18 +512,18 @@ async function renderDeck(deckId) {
   const paint = () => {
     listEl.replaceChildren();
     const shown = Search.filter(scoped, search.value);
-    for (const c of shown) listEl.append(cardRow(c));
+    for (const c of shown) listEl.append(cardRow(c, deckNames && h('span', { class: 'tag' }, deckNames.get(c.deckId))));
     if (!shown.length) {
       listEl.append(h('p', { class: 'empty' }, scoped.length ? '검색 결과가 없어요.'
-        : isReadOnly() ? '카드가 없어요.' : '카드를 추가해 보세요.'));
+        : deckId === STARRED ? '별표한 카드가 없어요.' : isReadOnly() ? '카드가 없어요.' : '카드를 추가해 보세요.'));
     }
   };
   search.addEventListener('input', paint);
   $view.append(search, listEl);
   paint();
 
-  // 덱 관리 (게스트는 숨김)
-  if (!isReadOnly()) $view.append(deckManageRow(deck, everything.length));
+  // 덱 관리 (게스트는 숨김, 모음 덱은 이름 변경·삭제 없음)
+  if (!isReadOnly() && deckId !== STARRED) $view.append(deckManageRow(deck, everything.length));
 }
 
 function deckManageRow(deck, cardCount) {
@@ -542,21 +579,75 @@ function cardRow(c, extra) {
         c.type === 'cloze' ? h('span', { class: 'tag kind' }, '빈칸') : null,
         c.type === 'sentence' ? h('span', { class: 'tag kind' }, '문장') : null,
         c.reverse ? h('span', { class: 'tag kind' }, '↔ 양방향') : null,
+        c.star ? h('span', { class: 'tag kind' }, '★') : null,
         c.note ? h('span', { class: 'tag warn' }, '오답노트') : null,
         c.wrong ? h('span', { class: 'tag' }, `✗ ${c.wrong}`) : null,
         c.tags.map(t => h('span', { class: 'tag' }, '#' + t)),
         extra || null)),
-    isReadOnly() ? null : h('div', { class: 'card-actions' },
-      h('button', { class: 'icon-btn', 'aria-label': '수정', onclick: () => editCard(c, render) }, '✎'),
-      h('button', { class: 'icon-btn', 'aria-label': '다른 덱으로 이동', onclick: () => moveCardDialog(c) }, '⇄'),
-      h('button', {
-        class: 'icon-btn', 'aria-label': '삭제',
-        onclick: async () => {
-          if (!confirm('이 카드를 삭제할까요?')) return;
-          await Store.deleteCard(c.id);
-          render();
-        }
-      }, '🗑')));
+    h('div', { class: 'card-actions' },
+      isReadOnly() || c.script ? null : h('button', {
+        class: 'icon-btn', 'aria-label': c.star ? '꼭 외울 것 해제' : '꼭 외울 것으로 표시',
+        onclick: async () => { await toggleStar(c); render(); }
+      }, c.star ? '★' : '☆'),
+      h('button', { class: 'icon-btn', 'aria-label': '관련 카드', onclick: () => relatedDialog(c) }, '🔗'),
+      isReadOnly() ? null : [
+        h('button', { class: 'icon-btn', 'aria-label': '수정', onclick: () => editCard(c, render) }, '✎'),
+        h('button', { class: 'icon-btn', 'aria-label': '다른 덱으로 이동', onclick: () => moveCardDialog(c) }, '⇄'),
+        h('button', {
+          class: 'icon-btn', 'aria-label': '삭제',
+          onclick: async () => {
+            if (!confirm('이 카드를 삭제할까요?')) return;
+            await Store.deleteCard(c.id);
+            render();
+          }
+        }, '🗑')
+      ]));
+}
+
+// 이 카드와 관련 있는 다른 카드 (모든 덱에서). 목록의 카드를 누르면 그 카드의 관련 카드로 이어진다.
+// 글자·태그 기준 결과를 먼저 보여주고, 의미 검색이 켜져 있으면 뜻 유사도를 더해 다시 그린다.
+const RELATED_LIMIT = 10;
+async function relatedDialog(card) {
+  const [cards, decks] = await Promise.all([Store.listAllCards(), Store.listDecks()]);
+  const names = new Map(decks.map(d => [d.id, d.name]));
+  const pool = cards.filter(c => names.has(c.deckId));
+  const front = c => (c.type === 'cloze' ? clozeNodes(c.front, true) : c.front);
+
+  const box = h('div');
+  const note = h('p', { class: 'hint' });
+  const paint = found => box.replaceChildren(found.length
+    ? h('div', { class: 'list' }, found.map(({ card: c, reasons }) => h('button', {
+        type: 'button', class: 'related-item',
+        onclick: () => { dlg.close(); relatedDialog(c); }
+      },
+        h('div', { class: 'card-front' }, front(c)),
+        c.back ? h('div', { class: 'card-back' }, c.back) : null,
+        h('div', { class: 'card-meta' },
+          h('span', { class: 'tag kind' }, names.get(c.deckId)),
+          reasons.map(r => h('span', { class: 'tag' }, r))))))
+    : h('p', { class: 'empty' }, '관련된 카드를 찾지 못했어요.\n태그를 달거나 예시 문장을 넣으면 더 잘 찾아요.'));
+
+  const dlg = h('dialog', { class: 'dialog' },
+    h('h2', null, '관련 카드'),
+    h('div', { class: 'related-base' },
+      h('div', { class: 'card-front' }, front(card)),
+      card.back ? h('div', { class: 'card-back' }, card.back) : null),
+    note, box,
+    h('div', { class: 'row' }, h('button', { type: 'button', onclick: () => dlg.close() }, '닫기')));
+  dlg.addEventListener('close', () => dlg.remove());
+  paint(Search.related(card, pool).slice(0, RELATED_LIMIT));
+  document.body.append(dlg);
+  dlg.showModal();
+
+  if (!(window.Embed && Embed.isEnabled())) return note.remove();
+  note.textContent = '의미 분석 중…';
+  try {
+    const semantic = await Embed.similarTo(card, pool, (d, t) => { note.textContent = `의미 분석 중… ${d}/${t}`; });
+    if (dlg.isConnected) paint(Search.related(card, pool, semantic).slice(0, RELATED_LIMIT));
+    note.remove();
+  } catch (e) {
+    note.textContent = '의미 분석을 쓸 수 없어요: ' + e.message;
+  }
 }
 
 // ---------- 플래시카드 세션 (학습 / 오답노트 복습 공용) ----------
@@ -590,10 +681,15 @@ function flashSession({ items, patchFn, onFinish }) {
       h('button', { onclick: () => rate('hard') }, '애매'),
       h('button', { class: 'primary', onclick: () => rate('good') }, '알아'));
 
+    // 뒤집은 뒤에만 보이는 보조 버튼: 관련 카드 / 꼭 외울 것 표시
+    const relBtn = h('button', { class: 'related-btn', onclick: () => relatedDialog(card) }, '🔗 관련 카드 보기');
+    const extra = h('div', { class: 'extra-actions', hidden: true }, relBtn, starButton(card, false));
+
     let flipped = false;
     flipCard.addEventListener('click', () => {
       flipped = !flipped;
       flipCard.classList.toggle('flipped', flipped);
+      extra.hidden = !flipped;
       // replaceChildren 은 null 을 "null" 글자로, 배열을 통째로 문자열로 바꾸므로 h() 처럼 걸러서 넘긴다.
       flipCard.replaceChildren(...faceNodes(card, dir, flipped).flat(Infinity).filter(n => n != null && n !== false));
       buttons.hidden = !flipped;
@@ -603,7 +699,9 @@ function flashSession({ items, patchFn, onFinish }) {
     stage.append(
       label ? h('div', { class: 'dir-label' }, label) : null,
       flipCard,
+      card.tags.length ? h('div', { class: 'study-tags' }, card.tags.map(t => h('span', { class: 'tag' }, '#' + t))) : null,
       h('p', { class: 'hint' }, '카드를 탭하면 뒤집혀요'),
+      extra,
       buttons);
   }
 
@@ -642,7 +740,7 @@ function flashSession({ items, patchFn, onFinish }) {
 
 async function renderStudy(deckId) {
   setHeader('학습', { deckId, tag: nav.tag });
-  const cards = (await Store.listCards(deckId)).filter(c => !c.script);
+  const cards = (await deckCards(deckId)).filter(c => !c.script);
   const scoped = nav.tag ? cards.filter(c => c.tags.includes(nav.tag)) : cards;
   flashSession({
     items: dueItems(scoped),
@@ -680,7 +778,7 @@ function makeQuestion(card, dir, pool) {
 
 async function renderQuiz(deckId) {
   setHeader('4지선다', { deckId, tag: nav.tag });
-  const all = (await Store.listCards(deckId)).filter(c => !c.script);
+  const all = (await deckCards(deckId)).filter(c => !c.script);
   const scoped = nav.tag ? all.filter(c => c.tags.includes(nav.tag)) : all;
 
   const questions = shuffle(scoped)
@@ -710,6 +808,7 @@ async function renderQuiz(deckId) {
     const next = h('button', { class: 'primary big', hidden: true, onclick: () => { i++; show(); } },
       i === questions.length - 1 ? '결과 보기' : '다음');
 
+    const star = starButton(q.card, true);
     const buttons = q.options.map(opt => {
       const b = h('button', { class: 'opt' }, opt);
       b.addEventListener('click', () => choose(b, opt));
@@ -727,9 +826,10 @@ async function renderQuiz(deckId) {
         await applyPatch(q.card, wrongPatch(q.card));
       }
       next.hidden = false;
+      if (star) star.hidden = false;
     }
 
-    stage.append(h('div', { class: 'quiz-q' }, q.prompt), h('div', { class: 'options' }, buttons), next);
+    stage.append(h('div', { class: 'quiz-q' }, q.prompt), h('div', { class: 'options' }, buttons), star, next);
   }
 
   function finish() {
@@ -748,7 +848,7 @@ async function renderQuiz(deckId) {
 // ---------- 매칭 게임 ----------
 async function renderMatch(deckId) {
   setHeader('매칭 게임', { deckId, tag: nav.tag });
-  const all = (await Store.listCards(deckId)).filter(c => !c.script);
+  const all = (await deckCards(deckId)).filter(c => !c.script);
   const scoped = (nav.tag ? all.filter(c => c.tags.includes(nav.tag)) : all).filter(isPairCard);
   const picked = shuffle(scoped).slice(0, MATCH_PAIRS);
 
@@ -829,6 +929,7 @@ async function renderMatch(deckId) {
 
 // ---------- 전체 검색 ----------
 const SEARCH_LIMIT = 100;
+const SEMANTIC_LIMIT = 20;
 let lastQuery = '';
 
 async function renderSearch() {
@@ -836,6 +937,9 @@ async function renderSearch() {
   const [cards, decks] = await Promise.all([Store.listAllCards(), Store.listDecks()]);
   const names = new Map(decks.map(d => [d.id, d.name]));
   const pool = cards.filter(c => names.has(c.deckId));
+  const deckChip = c => h('button', {
+    class: 'tag kind', type: 'button', onclick: () => go({ deckId: c.deckId })
+  }, names.get(c.deckId));
 
   const input = h('input', {
     type: 'search', class: 'search', value: lastQuery,
@@ -844,27 +948,53 @@ async function renderSearch() {
   });
   const info = h('p', { class: 'hint' });
   const listEl = h('div', { class: 'list' });
+  const semEl = h('div', { class: 'list' });
+
+  // 의미 검색: 글자가 안 맞아도 뜻이 비슷한 카드를 아래에 덧붙인다 (설정에서 켠 경우에만)
+  let seq = 0, timer;
+  const semanticPaint = (q, found, baseInfo) => {
+    clearTimeout(timer);
+    const mine = ++seq;
+    semEl.replaceChildren();
+    if (!q.trim() || !(window.Embed && Embed.isEnabled())) return;
+    timer = setTimeout(async () => {
+      try {
+        const sims = await Embed.similarToText(q, pool, (d, t) => {
+          if (mine === seq) info.textContent = `의미 분석 중… ${d}/${t}`;
+        });
+        if (mine !== seq) return;
+        info.textContent = baseInfo;
+        const seen = new Set(found.map(c => c.id));
+        const more = pool
+          .filter(c => !seen.has(c.id) && (sims.get(c.id) || 0) >= Search.SEMANTIC_MIN)
+          .sort((a, b) => sims.get(b.id) - sims.get(a.id))
+          .slice(0, SEMANTIC_LIMIT);
+        if (!more.length) return;
+        semEl.append(h('p', { class: 'hint' }, '뜻이 비슷한 카드'),
+          more.map(c => cardRow(c, [deckChip(c), h('span', { class: 'tag' }, `의미 ${Math.round(sims.get(c.id) * 100)}%`)])));
+      } catch (e) {
+        if (mine === seq) info.textContent = '의미 검색을 쓸 수 없어요: ' + e.message;
+      }
+    }, 400);
+  };
 
   const paint = () => {
     lastQuery = input.value;
     listEl.replaceChildren();
     if (!input.value.trim()) {
       info.textContent = `카드 ${pool.length}장 전체에서 찾아요. 뜻·발음·예문·태그 어디에 있어도 나와요.`;
-      return;
+      return semanticPaint('', [], '');
     }
     const found = Search.filter(pool, input.value, names);
     info.textContent = found.length ? `${found.length}장` : '검색 결과가 없어요.';
-    for (const c of found.slice(0, SEARCH_LIMIT)) {
-      listEl.append(cardRow(c, h('button', {
-        class: 'tag kind', type: 'button', onclick: () => go({ deckId: c.deckId })
-      }, names.get(c.deckId))));
-    }
+    for (const c of found.slice(0, SEARCH_LIMIT)) listEl.append(cardRow(c, deckChip(c)));
     if (found.length > SEARCH_LIMIT) {
       listEl.append(h('p', { class: 'hint' }, `처음 ${SEARCH_LIMIT}장만 보여줘요. 검색어를 더 적어 보세요.`));
     }
+    semanticPaint(input.value, found, info.textContent);
   };
   input.addEventListener('input', paint);
-  $view.append(input, info, listEl);
+  $view.append(input, info, listEl, semEl);
   paint();
 }
 
@@ -918,6 +1048,34 @@ async function renderNoteStudy() {
 }
 
 // ---------- 설정 ----------
+// 의미 검색(임베딩) 켜기/끄기. 켜면 모델(약 135MB)을 한 번 받고 모든 카드를 분석해 둔다.
+function semanticPanel() {
+  const on = Embed.isEnabled();
+  const status = h('p', null, on
+    ? '켜져 있어요. 관련 카드와 검색에서 뜻이 비슷한 카드도 찾아요.'
+    : '카드의 뜻이 비슷한 것도 찾아요 (犬 ↔ 猫, 개 ↔ dog). 처음 한 번 약 135MB 모델을 받고, 계산은 이 기기에서만 해요. 카드 내용은 밖으로 나가지 않아요.');
+  const btn = h('button', { class: on ? '' : 'primary' }, on ? '끄기 (분석 데이터 삭제)' : '켜기 (약 135MB 다운로드)');
+  btn.addEventListener('click', async () => {
+    if (!on && !confirm('약 135MB를 내려받아요. Wi-Fi에 연결돼 있나요? 계속할까요?')) return;
+    btn.disabled = true;
+    try {
+      if (on) {
+        await Embed.disable();
+        toast('껐어요');
+      } else {
+        await Embed.enable((l, t) => { status.textContent = `모델 받는 중… ${Math.round(l / 1048576)} / ${Math.round(t / 1048576)}MB`; });
+        await Embed.ensureIndex(await Store.listAllCards(), (d, t) => { status.textContent = `카드 분석 중… ${d}/${t}`; });
+        toast('켜졌어요');
+      }
+      render();
+    } catch (e) {
+      status.textContent = '실패: ' + e.message;
+      btn.disabled = false;
+    }
+  });
+  return h('section', { class: 'panel' }, h('h2', null, '의미 검색 (AI)'), status, btn);
+}
+
 function renderSettings() {
   setHeader('설정');
   const fileInput = h('input', { type: 'file', accept: 'application/json,.json', hidden: true });
@@ -955,6 +1113,8 @@ function renderSettings() {
             h('button', { class: 'primary', onclick: () => window.Sync.signIn() }, '구글로 로그인')
           ]));
   }
+
+  if (window.Embed) $view.append(semanticPanel());
 
   // 게스트는 가져오기(데이터 교체)를 쓸 수 없다.
   if (isReadOnly()) return;

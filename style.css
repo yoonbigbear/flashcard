@@ -114,6 +114,13 @@ textarea:focus, input:focus { outline: 2px solid var(--primary); outline-offset:
   font-size: 0.75rem; color: var(--primary); border: 1px solid var(--primary);
 }
 .flip-card .pron { font-size: 1rem; margin-top: 6px; }
+.study-tags { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: -6px; }
+.related-base { padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+.related-item { display: block; width: 100%; text-align: left; border-radius: 12px; }
+.related-btn { align-self: center; border: 0; background: none; color: var(--primary); }
+.related-btn[hidden] { display: none; }
+.extra-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; }
+.extra-actions[hidden] { display: none; }
 .example-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
 .example-row { display: flex; align-items: center; gap: 4px; }
 .example-row .text-input { flex: 1; min-width: 0; }

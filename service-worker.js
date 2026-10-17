@@ -1,5 +1,5 @@
 // 앱 파일을 수정해서 배포할 때마다 CACHE 버전을 올려야 폰에 새 버전이 반영된다.
-const CACHE = 'flashcard-v21';
+const CACHE = 'flashcard-v25';
 // 일본어 사전(약 17MB)은 앱 버전이 바뀌어도 다시 받지 않도록 별도 캐시에 둔다.
 const DICT_CACHE = 'flashcard-dict-v1';
 const FILES = [
@@ -10,6 +10,7 @@ const FILES = [
   'storage.js',
   'japanese.js',
   'search.js',
+  'embed.js',
   'script.js',
   'sync.js',
   'firebase-config.js',
@@ -50,8 +51,9 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // 일본어 사전(kuromoji): 처음 한 번 받아 두면 이후엔 오프라인에서도 쓴다.
-  if (url.hostname === 'cdn.jsdelivr.net' && url.pathname.startsWith('/npm/kuromoji@')) {
+  // 일본어 사전(kuromoji)과 의미 검색 라이브러리(Transformers.js, onnxruntime): 처음 한 번 받아 두면 이후엔 오프라인에서도 쓴다.
+  // (모델 파일은 Transformers.js 가 자체 캐시에 보관한다)
+  if (url.hostname === 'cdn.jsdelivr.net' && /^\/npm\/(kuromoji@|@huggingface\/transformers@|onnxruntime-web@)/.test(url.pathname)) {
     e.respondWith(caches.open(DICT_CACHE).then(async cache => {
       const hit = await cache.match(e.request);
       if (hit) return hit;

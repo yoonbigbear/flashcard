@@ -8,13 +8,14 @@
 //   tags     태그 배열
 //   reverse  양방향 여부 (basic 전용: 뒤→앞도 복습)
 //   box/due  앞→뒤(또는 빈칸) 복습 상태,  rbox/rdue  뒤→앞 복습 상태
+//   star     꼭 외울 것으로 표시 (모든 덱의 별표 카드는 '꼭 외울 것' 모음에도 나온다)
 //   wrong    틀린 횟수,  note  오답노트 포함 여부,  streak  오답노트에서 연속 정답 횟수
 //   updated  마지막 수정 시각(ms). 기기 간 충돌 시 더 최근 것이 이긴다.
 const Store = (() => {
   const KEY = 'flashcard-data-v1';
 
   const CARD_DEFAULTS = {
-    type: 'basic', tags: [], reverse: false, pronJa: '', pronKo: '', example: '',
+    type: 'basic', tags: [], reverse: false, pronJa: '', pronKo: '', example: '', star: false,
     box: 0, due: 0, rbox: 0, rdue: 0,
     wrong: 0, note: false, streak: 0, updated: 0
   };
