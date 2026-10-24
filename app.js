@@ -52,11 +52,15 @@ const unique = arr => [...new Set(arr)];
 // '꼭 외울 것' 모음: 모든 덱에서 별표한 카드를 모아 보여주는 가상 덱. 카드는 원래 덱에 그대로 있다.
 const STARRED = '__starred__';
 const STARRED_NAME = '★ 꼭 외울 것';
+// '전체 덱' 모음: 모든 덱의 카드를 한데 모아 학습·퀴즈·매칭을 하는 가상 덱.
+const ALL = '__all__';
+const ALL_NAME = '전체 덱';
+const isVirtualDeck = id => id === STARRED || id === ALL;
 async function deckCards(deckId) {
-  if (deckId !== STARRED) return Store.listCards(deckId);
+  if (!isVirtualDeck(deckId)) return Store.listCards(deckId);
   const [cards, decks] = await Promise.all([Store.listAllCards(), Store.listDecks()]);
   const ids = new Set(decks.map(d => d.id));
-  return cards.filter(c => c.star && !c.script && ids.has(c.deckId));
+  return cards.filter(c => (deckId === ALL || c.star) && !c.script && ids.has(c.deckId));
 }
 const toggleStar = card => applyPatch(card, { star: !card.star });
 const starLabel = card => (card.star ? '★ 꼭 외울 것' : '☆ 꼭 외우기');
@@ -228,6 +232,15 @@ async function renderDecks() {
   setHeader('내 덱');
   const decks = await Store.listDecks();
   const list = h('div', { class: 'list' });
+
+  const all = await deckCards(ALL);
+  if (decks.length > 1 && all.length) {
+    const due = dueItems(all).length;
+    list.append(h('button', { class: 'deck-item', onclick: () => go({ deckId: ALL }) },
+      h('div', { class: 'deck-name' }, ALL_NAME),
+      h('div', { class: 'deck-meta' }, `덱 ${decks.length}개 · 카드 ${all.length}장`,
+        due > 0 ? h('span', { class: 'badge' }, `복습 ${due}`) : null)));
+  }
 
   const starred = await deckCards(STARRED);
   if (starred.length) {
@@ -439,9 +452,11 @@ function editCard(card, onDone) {
 // ---------- 덱 상세 ----------
 async function renderDeck(deckId) {
   const decks = await Store.listDecks();
-  const deck = deckId === STARRED ? { id: STARRED, name: STARRED_NAME } : decks.find(d => d.id === deckId);
+  const deck = deckId === STARRED ? { id: STARRED, name: STARRED_NAME }
+    : deckId === ALL ? { id: ALL, name: ALL_NAME }
+    : decks.find(d => d.id === deckId);
   if (!deck) return go({});
-  const deckNames = deckId === STARRED ? new Map(decks.map(d => [d.id, d.name])) : null;
+  const deckNames = isVirtualDeck(deckId) ? new Map(decks.map(d => [d.id, d.name])) : null;
   setHeader(deck.name, {});
 
   // 대화 스크립트의 줄은 스크립트 영역에서 따로 다루고, 일반 카드 목록·학습에서는 뺀다.
@@ -455,7 +470,7 @@ async function renderDeck(deckId) {
   const allTags = unique(cards.flatMap(c => c.tags)).sort();
 
   // 대화 스크립트 덱: 스크립트 목록과 연습만 있고 일반 학습·카드 입력은 없다.
-  if (isScriptDeck(deck, everything)) {
+  if (!isVirtualDeck(deckId) && isScriptDeck(deck, everything)) {
     $view.append(scriptSection(deckId, lineCards));
     if (!isReadOnly()) $view.append(deckManageRow(deck, everything.length));
     return;
@@ -488,7 +503,7 @@ async function renderDeck(deckId) {
       allTags.length ? h('button', { onclick: () => tagStudyDialog(deckId, cards) }, '태그별 학습') : null));
 
   // 카드 추가 폼 (게스트는 숨김, 모음 덱에서는 추가하지 않는다)
-  if (!isReadOnly() && deckId !== STARRED) {
+  if (!isReadOnly() && !isVirtualDeck(deckId)) {
     const form = cardForm({ type: formMemo.type, front: '', back: '', tags: formMemo.tags, reverse: formMemo.reverse });
     const addBtn = h('button', {
       type: 'button', class: 'primary',
@@ -522,7 +537,7 @@ async function renderDeck(deckId) {
   paint();
 
   // 덱 관리 (게스트는 숨김, 모음 덱은 이름 변경·삭제 없음)
-  if (!isReadOnly() && deckId !== STARRED) $view.append(deckManageRow(deck, everything.length));
+  if (!isReadOnly() && !isVirtualDeck(deckId)) $view.append(deckManageRow(deck, everything.length));
 }
 
 // 태그를 골라 그 태그의 카드만 학습한다. (덱 화면의 태그 칩으로 걸러 둔 것과 같은 학습)
