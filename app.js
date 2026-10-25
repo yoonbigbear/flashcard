@@ -55,12 +55,15 @@ const STARRED_NAME = '★ 꼭 외울 것';
 // '전체 덱' 모음: 모든 덱의 카드를 한데 모아 학습·퀴즈·매칭을 하는 가상 덱.
 const ALL = '__all__';
 const ALL_NAME = '전체 덱';
-const isVirtualDeck = id => id === STARRED || id === ALL;
+// '수정 필요' 모음: 학습·퀴즈 중 내용이 틀렸거나 고쳐야 한다고 표시한 카드를 모아 보여주는 가상 덱.
+const FLAGGED = '__flagged__';
+const FLAGGED_NAME = '🚩 수정 필요';
+const isVirtualDeck = id => id === STARRED || id === ALL || id === FLAGGED;
 async function deckCards(deckId) {
   if (!isVirtualDeck(deckId)) return Store.listCards(deckId);
   const [cards, decks] = await Promise.all([Store.listAllCards(), Store.listDecks()]);
   const ids = new Set(decks.map(d => d.id));
-  return cards.filter(c => (deckId === ALL || c.star) && !c.script && ids.has(c.deckId));
+  return cards.filter(c => (deckId === ALL || (deckId === FLAGGED ? c.flag : c.star)) && !c.script && ids.has(c.deckId));
 }
 const toggleStar = card => applyPatch(card, { star: !card.star });
 const starLabel = card => (card.star ? '★ 꼭 외울 것' : '☆ 꼭 외우기');
@@ -71,6 +74,18 @@ function starButton(card, hidden) {
     class: 'related-btn', hidden,
     onclick: async () => { await toggleStar(card); btn.textContent = starLabel(card); }
   }, starLabel(card));
+  return btn;
+}
+
+const toggleFlag = card => applyPatch(card, { flag: !card.flag });
+const flagLabel = card => (card.flag ? '🚩 수정 필요 (해제)' : '🏳 수정 필요 표시');
+// 학습·퀴즈 중 카드 아래에 띄우는 '수정 필요' 토글 버튼 (게스트·스크립트 줄은 없음)
+function flagButton(card, hidden) {
+  if (isReadOnly() || card.script) return null;
+  const btn = h('button', {
+    class: 'related-btn', hidden,
+    onclick: async () => { await toggleFlag(card); btn.textContent = flagLabel(card); toast(card.flag ? '수정 필요로 표시했어요' : '표시를 해제했어요'); }
+  }, flagLabel(card));
   return btn;
 }
 
@@ -251,6 +266,13 @@ async function renderDecks() {
         due > 0 ? h('span', { class: 'badge' }, `복습 ${due}`) : null)));
   }
 
+  const flagged = await deckCards(FLAGGED);
+  if (flagged.length) {
+    list.append(h('button', { class: 'deck-item', onclick: () => go({ deckId: FLAGGED }) },
+      h('div', { class: 'deck-name' }, FLAGGED_NAME),
+      h('div', { class: 'deck-meta' }, `고칠 카드 ${flagged.length}장`)));
+  }
+
   for (const deck of decks) {
     const cards = await Store.listCards(deck.id);
     const due = dueItems(cards).length;
@@ -382,6 +404,10 @@ function cardForm(card) {
   starCheck.checked = !!c.star;
   const starRow = h('label', { class: 'check' }, starCheck, '★ 꼭 외울 것');
 
+  const flagCheck = h('input', { type: 'checkbox' });
+  flagCheck.checked = !!c.flag;
+  const flagRow = h('label', { class: 'check' }, flagCheck, '🚩 수정 필요');
+
   function sync() {
     const cloze = type.value === 'cloze';
     const sentence = type.value === 'sentence';
@@ -393,10 +419,10 @@ function cardForm(card) {
   }
   type.addEventListener('change', sync);
   sync();
-  if (isLine) { type.hidden = true; blankBtn.hidden = true; revLabel.hidden = true; pronJa.hidden = pronKo.hidden = true; example.hidden = true; starRow.hidden = true; }
+  if (isLine) { type.hidden = true; blankBtn.hidden = true; revLabel.hidden = true; pronJa.hidden = pronKo.hidden = true; example.hidden = true; starRow.hidden = true; flagRow.hidden = true; }
 
   return {
-    el: h('div', { class: 'card-fields' }, type, front, blankBtn, back, pronJa, pronKo, example, isLine ? read : null, hasVideo ? start : null, tags, revLabel, starRow),
+    el: h('div', { class: 'card-fields' }, type, front, blankBtn, back, pronJa, pronKo, example, isLine ? read : null, hasVideo ? start : null, tags, revLabel, starRow, flagRow),
     front,
     // 검증에 실패하면 null
     get() {
@@ -416,7 +442,7 @@ function cardForm(card) {
         reverse: !isCloze && !isSentence && rev.checked,
         pronJa: isSentence ? pronJa.value.trim() : '',
         pronKo: isSentence ? pronKo.value.trim() : '',
-        ...(isLine ? {} : { star: starCheck.checked }),
+        ...(isLine ? {} : { star: starCheck.checked, flag: flagCheck.checked }),
         example: isLine ? '' : exampleInputs.map(i => i.value.trim().replace(/\n\s*\n+/g, '\n')).filter(Boolean).join(EXAMPLE_SEP),
         ...(isLine ? { read: read.value.trim() } : {}),
         ...(hasVideo ? { start: startSec } : {})
@@ -454,6 +480,7 @@ async function renderDeck(deckId) {
   const decks = await Store.listDecks();
   const deck = deckId === STARRED ? { id: STARRED, name: STARRED_NAME }
     : deckId === ALL ? { id: ALL, name: ALL_NAME }
+    : deckId === FLAGGED ? { id: FLAGGED, name: FLAGGED_NAME }
     : decks.find(d => d.id === deckId);
   if (!deck) return go({});
   const deckNames = isVirtualDeck(deckId) ? new Map(decks.map(d => [d.id, d.name])) : null;
@@ -529,7 +556,7 @@ async function renderDeck(deckId) {
     for (const c of shown) listEl.append(cardRow(c, deckNames && h('span', { class: 'tag' }, deckNames.get(c.deckId))));
     if (!shown.length) {
       listEl.append(h('p', { class: 'empty' }, scoped.length ? '검색 결과가 없어요.'
-        : deckId === STARRED ? '별표한 카드가 없어요.' : isReadOnly() ? '카드가 없어요.' : '카드를 추가해 보세요.'));
+        : deckId === STARRED ? '별표한 카드가 없어요.' : deckId === FLAGGED ? '수정이 필요한 카드가 없어요.' : isReadOnly() ? '카드가 없어요.' : '카드를 추가해 보세요.'));
     }
   };
   search.addEventListener('input', paint);
@@ -615,6 +642,7 @@ function cardRow(c, extra) {
         c.type === 'sentence' ? h('span', { class: 'tag kind' }, '문장') : null,
         c.reverse ? h('span', { class: 'tag kind' }, '↔ 양방향') : null,
         c.star ? h('span', { class: 'tag kind' }, '★') : null,
+        c.flag ? h('span', { class: 'tag warn' }, '🚩 수정 필요') : null,
         c.note ? h('span', { class: 'tag warn' }, '오답노트') : null,
         c.wrong ? h('span', { class: 'tag' }, `✗ ${c.wrong}`) : null,
         c.tags.map(t => h('span', { class: 'tag' }, '#' + t)),
@@ -624,6 +652,10 @@ function cardRow(c, extra) {
         class: 'icon-btn', 'aria-label': c.star ? '꼭 외울 것 해제' : '꼭 외울 것으로 표시',
         onclick: async () => { await toggleStar(c); render(); }
       }, c.star ? '★' : '☆'),
+      isReadOnly() || c.script ? null : h('button', {
+        class: 'icon-btn', 'aria-label': c.flag ? '수정 필요 표시 해제' : '수정 필요로 표시',
+        onclick: async () => { await toggleFlag(c); render(); }
+      }, c.flag ? '🚩' : '🏳'),
       h('button', { class: 'icon-btn', 'aria-label': '관련 카드', onclick: () => relatedDialog(c) }, '🔗'),
       isReadOnly() ? null : [
         h('button', { class: 'icon-btn', 'aria-label': '수정', onclick: () => editCard(c, render) }, '✎'),
@@ -718,7 +750,7 @@ function flashSession({ items, patchFn, onFinish }) {
 
     // 뒤집은 뒤에만 보이는 보조 버튼: 관련 카드 / 꼭 외울 것 표시
     const relBtn = h('button', { class: 'related-btn', onclick: () => relatedDialog(card) }, '🔗 관련 카드 보기');
-    const extra = h('div', { class: 'extra-actions', hidden: true }, relBtn, starButton(card, false));
+    const extra = h('div', { class: 'extra-actions', hidden: true }, relBtn, starButton(card, false), flagButton(card, false));
 
     let flipped = false;
     flipCard.addEventListener('click', () => {
@@ -844,6 +876,7 @@ async function renderQuiz(deckId) {
       i === questions.length - 1 ? '결과 보기' : '다음');
 
     const star = starButton(q.card, true);
+    const flag = flagButton(q.card, true);
     const buttons = q.options.map(opt => {
       const b = h('button', { class: 'opt' }, opt);
       b.addEventListener('click', () => choose(b, opt));
@@ -862,9 +895,10 @@ async function renderQuiz(deckId) {
       }
       next.hidden = false;
       if (star) star.hidden = false;
+      if (flag) flag.hidden = false;
     }
 
-    appendAll(stage, h('div', { class: 'quiz-q' }, q.prompt), h('div', { class: 'options' }, buttons), star, next);
+    appendAll(stage, h('div', { class: 'quiz-q' }, q.prompt), h('div', { class: 'options' }, buttons), star, flag, next);
   }
 
   function finish() {
