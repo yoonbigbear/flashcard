@@ -69,7 +69,7 @@ const toggleStar = card => applyPatch(card, { star: !card.star });
 const starLabel = card => (card.star ? '★ 꼭 외울 것' : '☆ 꼭 외우기');
 // 학습·퀴즈 중 카드 아래에 띄우는 별표 토글 버튼 (게스트·스크립트 줄은 없음)
 function starButton(card, hidden) {
-  if (isReadOnly() || card.script) return null;
+  if (isReadOnly() || card.script || card.virtual) return null;
   const btn = h('button', {
     class: 'related-btn', hidden,
     onclick: async () => { await toggleStar(card); btn.textContent = starLabel(card); }
@@ -81,7 +81,7 @@ const toggleFlag = card => applyPatch(card, { flag: !card.flag });
 const flagLabel = card => (card.flag ? '🚩 수정 필요 (해제)' : '🏳 수정 필요 표시');
 // 학습·퀴즈 중 카드 아래에 띄우는 '수정 필요' 토글 버튼 (게스트·스크립트 줄은 없음)
 function flagButton(card, hidden) {
-  if (isReadOnly() || card.script) return null;
+  if (isReadOnly() || card.script || card.virtual) return null;
   const btn = h('button', {
     class: 'related-btn', hidden,
     onclick: async () => { await toggleFlag(card); btn.textContent = flagLabel(card); toast(card.flag ? '수정 필요로 표시했어요' : '표시를 해제했어요'); }
@@ -121,21 +121,43 @@ function pronNodes(card) {
     .map(([label, v]) => h('div', { class: 'pron' }, h('span', { class: 'pron-label' }, label), v));
 }
 
-// 예시 문장 (있을 때만). 여러 개는 example 에 빈 줄로 구분해 저장하고, 하나마다 따로 보여준다.
-// 예시 하나 안에서는 줄바꿈을 쓸 수 있다.
-const EXAMPLE_SEP = '\n\n';
-const exampleList = card => (card.example || '').split(/\r?\n\s*\r?\n/).map(s => s.trim()).filter(Boolean);
+// 예시 문장 (있을 때만). 문장 카드와 같은 형식({front, back, pronJa, pronKo})으로 card.examples 에 담고,
+// 하나마다 따로 보여준다. 검색·의미 분석용으로는 글로 합친 card.example 을 쓴다.
+const exampleList = card => card.examples || [];
+const exampleText = list => list.map(e => [e.front, e.back, e.pronJa, e.pronKo].filter(Boolean).join(' / ')).join('\n\n');
 const exampleNode = card => {
   const list = exampleList(card);
-  return list.length ? list.map(s => h('div', { class: 'example' }, s)) : null;
+  return list.length ? list.map(e => h('div', { class: 'example' },
+    h('div', null, e.front), e.back ? h('div', null, e.back) : null, pronNodes(e))) : null;
 };
+
+// 문장 문제: 문장 카드와, 다른 카드에 달린 예시 문장(뜻이 있는 것만)을 한데 모은다.
+// 예시는 카드가 아니라서 복습 일정 없이 임시 문장 카드(virtual)로 바꿔 쓴다.
+function sentenceItems(cards) {
+  const items = [];
+  for (const c of cards) {
+    if (c.script) continue;
+    if (c.type === 'sentence') {
+      items.push({ card: c, dir: Math.random() < 0.5 ? 'f' : 'r' });
+    } else {
+      for (const e of exampleList(c)) {
+        if (!e.front || !e.back) continue;
+        const v = { type: 'sentence', virtual: true, parent: c, front: e.front, back: e.back,
+          pronJa: e.pronJa || '', pronKo: e.pronKo || '', tags: c.tags, examples: [] };
+        items.push({ card: v, dir: Math.random() < 0.5 ? 'f' : 'r' });
+      }
+    }
+  }
+  return items;
+}
 
 // 카드 한 면의 내용. dir: 'f'(앞→뒤) | 'r'(뒤→앞)
 function faceNodes(card, dir, flipped) {
   if (card.type === 'sentence') {
+    const q = dir === 'r' ? card.back : card.front;
     return flipped
-      ? [h('div', { class: 'q-small' }, card.front), h('div', null, card.back), pronNodes(card), exampleNode(card)]
-      : [h('div', null, card.front)];
+      ? [h('div', { class: 'q-small' }, q), h('div', null, dir === 'r' ? card.front : card.back), pronNodes(card)]
+      : [h('div', null, q)];
   }
   if (card.type === 'cloze') {
     return flipped
@@ -159,7 +181,7 @@ function dueItems(cards) {
   for (const c of cards) {
     if (c.script) continue; // 대화 스크립트 줄은 따로 연습한다
     if (c.due <= end) items.push({ card: c, dir: 'f' });
-    if (c.type === 'basic' && c.reverse && c.rdue <= end) items.push({ card: c, dir: 'r' });
+    if ((c.type === 'sentence' || (c.type === 'basic' && c.reverse)) && c.rdue <= end) items.push({ card: c, dir: 'r' });
   }
   return items;
 }
@@ -229,6 +251,7 @@ async function render() {
   if (nav.deckId) {
     if (nav.mode === 'study') return renderStudy(nav.deckId);
     if (nav.mode === 'quiz') return renderQuiz(nav.deckId);
+    if (nav.mode === 'sentence') return renderSentence(nav.deckId);
     if (nav.mode === 'match') return renderMatch(nav.deckId);
     if (nav.mode === 'script') return renderScriptPractice(nav.deckId, nav.scriptId);
     return renderDeck(nav.deckId);
@@ -369,27 +392,31 @@ function cardForm(card) {
   const pronKo = h('input', { type: 'text', class: 'text-input', placeholder: '한국어 발음 (선택, 예: 곤니치와)' });
   pronKo.value = c.pronKo || '';
 
-  // 예시 문장: 입력칸을 필요한 만큼 늘릴 수 있다. 저장할 때 빈 줄로 구분해 합친다.
+  // 예시 문장: 문장 카드와 같은 형식(문장 / 뜻 / 발음)으로, 필요한 만큼 늘릴 수 있다.
   const exampleRows = h('div', { class: 'example-rows' });
   const exampleInputs = [];
-  const addExample = (value = '') => {
-    const input = h('textarea', { rows: '2', placeholder: '예시 문장 (선택, 여러 줄 가능)' });
-    input.value = value;
+  const addExample = (e = {}) => {
+    const ef = h('textarea', { rows: '2', placeholder: '예시 문장' });
+    const eb = h('textarea', { rows: '2', placeholder: '뜻 (문장 문제에 나오려면 필요)' });
+    const ej = h('input', { type: 'text', class: 'text-input', placeholder: '일본어 발음 (선택)' });
+    const ek = h('input', { type: 'text', class: 'text-input', placeholder: '한국어 발음 (선택)' });
+    ef.value = e.front || ''; eb.value = e.back || ''; ej.value = e.pronJa || ''; ek.value = e.pronKo || '';
+    const item = { ef, eb, ej, ek };
     const del = h('button', {
       type: 'button', class: 'icon-btn', 'aria-label': '예시 문장 삭제',
       onclick: () => {
-        if (exampleInputs.length === 1) { input.value = ''; return; }
-        exampleInputs.splice(exampleInputs.indexOf(input), 1);
+        if (exampleInputs.length === 1) { ef.value = eb.value = ej.value = ek.value = ''; return; }
+        exampleInputs.splice(exampleInputs.indexOf(item), 1);
         row.remove();
       }
     }, '✕');
-    const row = h('div', { class: 'example-row' }, input, del);
-    exampleInputs.push(input);
+    const row = h('div', { class: 'example-row' }, h('div', { class: 'example-parts' }, ef, eb, ej, ek), del);
+    exampleInputs.push(item);
     exampleRows.append(row);
-    return input;
+    return ef;
   };
   const initialExamples = exampleList(c);
-  (initialExamples.length ? initialExamples : ['']).forEach(addExample);
+  (initialExamples.length ? initialExamples : [{}]).forEach(addExample);
   const example = h('div', { class: 'example-field' }, exampleRows,
     h('button', { type: 'button', onclick: () => addExample().focus() }, '+ 예시 문장 추가'));
 
@@ -416,6 +443,7 @@ function cardForm(card) {
     blankBtn.hidden = !cloze;
     revLabel.hidden = cloze || sentence;
     pronJa.hidden = pronKo.hidden = !sentence;
+    example.hidden = sentence;
   }
   type.addEventListener('change', sync);
   sync();
@@ -432,6 +460,10 @@ function cardForm(card) {
       if (!f) { toast('내용을 입력하세요'); return null; }
       if (isCloze && !clozeAnswers(f).length) { toast('{{단어}} 형태로 빈칸을 하나 이상 지정하세요'); return null; }
       if (!isCloze && !b && !isLine) { toast('앞면과 뒷면을 모두 입력하세요'); return null; }
+      const exampleValues = isLine || isSentence ? [] : exampleInputs
+        .map(x => ({ front: x.ef.value.trim(), back: x.eb.value.trim(), pronJa: x.ej.value.trim(), pronKo: x.ek.value.trim() }))
+        .filter(e => e.front || e.back);
+      if (exampleValues.some(e => !e.front)) { toast('예시 문장의 문장 칸이 비었어요'); return null; }
       const startSec = hasVideo ? JP.parseTime(start.value) : null;
       if (Number.isNaN(startSec)) { toast('시간은 1:23 처럼 적어 주세요'); return null; }
       return {
@@ -443,7 +475,8 @@ function cardForm(card) {
         pronJa: isSentence ? pronJa.value.trim() : '',
         pronKo: isSentence ? pronKo.value.trim() : '',
         ...(isLine ? {} : { star: starCheck.checked, flag: flagCheck.checked }),
-        example: isLine ? '' : exampleInputs.map(i => i.value.trim().replace(/\n\s*\n+/g, '\n')).filter(Boolean).join(EXAMPLE_SEP),
+        examples: exampleValues,
+        example: exampleText(exampleValues),
         ...(isLine ? { read: read.value.trim() } : {}),
         ...(hasVideo ? { start: startSec } : {})
       };
@@ -527,7 +560,11 @@ async function renderDeck(deckId) {
         disabled: basicCount < 2,
         onclick: () => go({ deckId, tag, mode: 'match' })
       }, '매칭 게임'),
-      allTags.length ? h('button', { onclick: () => tagStudyDialog(deckId, cards) }, '태그별 학습') : null));
+      allTags.length ? h('button', { onclick: () => tagStudyDialog(deckId, cards) }, '태그별 학습') : null),
+    h('button', {
+      disabled: sentenceItems(scoped).length === 0,
+      onclick: () => go({ deckId, tag, mode: 'sentence' })
+    }, `문장 문제 (${sentenceItems(scoped).length})`));
 
   // 카드 추가 폼 (게스트는 숨김, 모음 덱에서는 추가하지 않는다)
   if (!isReadOnly() && !isVirtualDeck(deckId)) {
@@ -749,7 +786,7 @@ function flashSession({ items, patchFn, onFinish }) {
       h('button', { class: 'primary', onclick: () => rate('good') }, '알아'));
 
     // 뒤집은 뒤에만 보이는 보조 버튼: 관련 카드 / 꼭 외울 것 표시
-    const relBtn = h('button', { class: 'related-btn', onclick: () => relatedDialog(card) }, '🔗 관련 카드 보기');
+    const relBtn = h('button', { class: 'related-btn', onclick: () => relatedDialog(card.parent || card) }, '🔗 관련 카드 보기');
     const extra = h('div', { class: 'extra-actions', hidden: true }, relBtn, starButton(card, false), flagButton(card, false));
 
     let flipped = false;
@@ -816,6 +853,19 @@ async function renderStudy(deckId) {
   });
 }
 
+// 문장 문제: 문장 카드와 예시 문장을 모두 섞어 무작위 방향(문장→뜻 / 뜻→문장)으로 푼다.
+// 복습 일정은 건드리지 않고, 틀린 문장 카드만 오답노트에 담는다. (예시 문장은 기록하지 않는다)
+async function renderSentence(deckId) {
+  setHeader('문장 문제', { deckId, tag: nav.tag });
+  const cards = (await deckCards(deckId)).filter(c => !c.script);
+  const scoped = nav.tag ? cards.filter(c => c.tags.includes(nav.tag)) : cards;
+  flashSession({
+    items: sentenceItems(scoped),
+    patchFn: (card, dir, result) => (card.virtual ? {} : noteRatePatch(card, dir, result)),
+    onFinish: () => go({ deckId, tag: nav.tag })
+  });
+}
+
 // ---------- 4지선다 ----------
 function makeQuestion(card, dir, pool) {
   let prompt, answer, distractors;
@@ -849,7 +899,7 @@ async function renderQuiz(deckId) {
   const scoped = nav.tag ? all.filter(c => c.tags.includes(nav.tag)) : all;
 
   const questions = shuffle(scoped)
-    .map(c => makeQuestion(c, c.type === 'basic' && c.reverse && Math.random() < 0.5 ? 'r' : 'f', all))
+    .map(c => makeQuestion(c, (c.type === 'sentence' || (c.type === 'basic' && c.reverse)) && Math.random() < 0.5 ? 'r' : 'f', all))
     .filter(Boolean)
     .slice(0, QUIZ_LENGTH);
 

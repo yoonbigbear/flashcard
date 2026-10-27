@@ -4,8 +4,10 @@
 // card 필드
 //   type     'basic'(앞/뒤) | 'cloze'(front 안에 {{빈칸}} 표시) | 'sentence'(문장 + 뜻 + 발음)
 //   pronJa   일본어 발음 (sentence 전용, 선택),  pronKo  한국어 발음 (sentence 전용, 선택)
-//   example  예시 문장 (선택, 스크립트 줄 제외). 카드를 뒤집었을 때 함께 보여준다.
-//            여러 개는 빈 줄로 구분하고, 하나 안에서는 줄바꿈을 쓸 수 있다.
+//   examples 예시 문장 배열 [{front, back, pronJa, pronKo}] (basic/cloze 전용, 선택). 문장 카드 형식이라
+//            카드를 뒤집으면 함께 보이고, '문장 문제'에 문장 카드와 섞여 나온다.
+//   example  examples 를 검색·의미 분석용 글로 합친 값 (examples 에서 자동으로 만든다)
+//            예전 카드는 example 에 글만 있고 examples 가 없다 → front 만 있는 예시로 바꿔 읽는다.
 //   tags     태그 배열
 //   reverse  양방향 여부 (basic 전용: 뒤→앞도 복습)
 //   box/due  앞→뒤(또는 빈칸) 복습 상태,  rbox/rdue  뒤→앞 복습 상태
@@ -17,7 +19,7 @@ const Store = (() => {
   const KEY = 'flashcard-data-v1';
 
   const CARD_DEFAULTS = {
-    type: 'basic', tags: [], reverse: false, pronJa: '', pronKo: '', example: '', star: false, flag: false,
+    type: 'basic', tags: [], reverse: false, pronJa: '', pronKo: '', example: '', examples: [], star: false, flag: false,
     box: 0, due: 0, rbox: 0, rdue: 0,
     wrong: 0, note: false, streak: 0, updated: 0
   };
@@ -26,6 +28,11 @@ const Store = (() => {
     const card = { ...CARD_DEFAULTS, ...c };
     for (const k of Object.keys(CARD_DEFAULTS)) if (card[k] == null) card[k] = CARD_DEFAULTS[k];
     card.tags = Array.isArray(card.tags) ? card.tags : [];
+    if (!Array.isArray(card.examples)) card.examples = [];
+    if (!card.examples.length && card.example) {
+      card.examples = card.example.split(/\r?\n\s*\r?\n/).map(t => t.trim()).filter(Boolean)
+        .map(front => ({ front, back: '', pronJa: '', pronKo: '' }));
+    }
     return card;
   };
 
@@ -54,7 +61,7 @@ const Store = (() => {
   }
 
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-  const copy = c => ({ ...c, tags: [...c.tags] });
+  const copy = c => ({ ...c, tags: [...c.tags], examples: c.examples.map(e => ({ ...e })) });
 
   // 동기화 훅
   const writeListeners = [];   // 로컬에서 바뀐 것 → 클라우드로

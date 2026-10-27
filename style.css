@@ -267,3 +267,5 @@ textarea:focus, input:focus { outline: 2px solid var(--primary); outline-offset:
 .listen-answer { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
 .listen-answer .script-text { line-height: 1.7; }
 
+.example-parts { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.example .pron { margin-top: 2px; }
