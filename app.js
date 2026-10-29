@@ -138,13 +138,13 @@ function sentenceItems(cards) {
   for (const c of cards) {
     if (c.script) continue;
     if (c.type === 'sentence') {
-      items.push({ card: c, dir: Math.random() < 0.5 ? 'f' : 'r' });
+      items.push({ card: c, dir: 'r' });
     } else {
       for (const e of exampleList(c)) {
         if (!e.front || !e.back) continue;
         const v = { type: 'sentence', virtual: true, parent: c, front: e.front, back: e.back,
           pronJa: e.pronJa || '', pronKo: e.pronKo || '', tags: c.tags, examples: [] };
-        items.push({ card: v, dir: Math.random() < 0.5 ? 'f' : 'r' });
+        items.push({ card: v, dir: 'r' });
       }
     }
   }
@@ -757,7 +757,7 @@ async function relatedDialog(card) {
 // ---------- 플래시카드 세션 (학습 / 오답노트 복습 공용) ----------
 const FLASH_BATCH = 20; // 한 번에 보여줄 카드 수
 
-function flashSession({ items, patchFn, onFinish }) {
+function flashSession({ items, patchFn, onFinish, label: fixedLabel }) {
   // 전체를 무작위로 섞은 뒤 FLASH_BATCH 장씩 나눠서 학습한다.
   const pool = shuffle(items);
   if (!pool.length) return onFinish();
@@ -799,7 +799,7 @@ function flashSession({ items, patchFn, onFinish }) {
       buttons.hidden = !flipped;
     });
 
-    const label = dir === 'r' ? '뒤 → 앞' : null;
+    const label = fixedLabel || (dir === 'r' ? '뒤 → 앞' : null);
     appendAll(stage,
       label ? h('div', { class: 'dir-label' }, label) : null,
       flipCard,
@@ -853,7 +853,7 @@ async function renderStudy(deckId) {
   });
 }
 
-// 문장 문제: 문장 카드와 예시 문장을 모두 섞어 무작위 방향(문장→뜻 / 뜻→문장)으로 푼다.
+// 문장 문제: 문장 카드와 예시 문장을 모두 섞어, 항상 뜻을 먼저 보여주고 일본어 문장을 떠올리게 한다.
 // 복습 일정은 건드리지 않고, 틀린 문장 카드만 오답노트에 담는다. (예시 문장은 기록하지 않는다)
 async function renderSentence(deckId) {
   setHeader('문장 문제', { deckId, tag: nav.tag });
@@ -862,6 +862,7 @@ async function renderSentence(deckId) {
   flashSession({
     items: sentenceItems(scoped),
     patchFn: (card, dir, result) => (card.virtual ? {} : noteRatePatch(card, dir, result)),
+    label: '뜻을 보고 일본어로 말해 보세요',
     onFinish: () => go({ deckId, tag: nav.tag })
   });
 }
