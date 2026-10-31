@@ -1276,3 +1276,4 @@ window.addEventListener('sync-state', () => {
 
 Store.requestPersistence();
 render();
+openSharedScript();

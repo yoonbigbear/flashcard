@@ -164,6 +164,8 @@ function scriptItem(deckId, scriptId, lines) {
       onclick: () => go({ deckId, mode: 'script', scriptId })
     }, '연습 시작'));
 
+  actions.append(h('button', { onclick: () => shareScript(name, lines) }, '🔗 링크 공유'));
+
   if (!isReadOnly()) {
     actions.append(h('button', {
       onclick: async () => {
@@ -227,6 +229,114 @@ async function fillReadings(lines) {
   }
   toast('발음을 만들었어요. 틀린 곳은 ✎ 로 고칠 수 있어요');
   return true;
+}
+
+// ---------- 링크로 공유 ----------
+// 서버 없이 스크립트 내용을 링크의 # 뒤에 담는다. # 뒤는 서버로 전송되지 않는다.
+// 담는 내용: {n 이름, v 영상 id, l [[일본어, 뜻, 발음, 화자, 시작시간]]}. 단어 분리(tokens)는 받는 쪽에서 다시 만든다.
+const SHARE_MAX_LINES = 500;
+
+const toB64 = bytes => {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+};
+const fromB64 = str => Uint8Array.from(atob(str.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0));
+const pipeBytes = async (bytes, stream) =>
+  new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
+
+// 앞 글자: z 압축 | r 압축 없음(압축을 지원하지 않는 브라우저)
+async function packShare(data) {
+  const raw = new TextEncoder().encode(JSON.stringify(data));
+  if (!window.CompressionStream) return 'r' + toB64(raw);
+  return 'z' + toB64(await pipeBytes(raw, new CompressionStream('deflate-raw')));
+}
+async function unpackShare(str) {
+  let bytes = fromB64(str.slice(1));
+  if (str[0] === 'z') bytes = await pipeBytes(bytes, new DecompressionStream('deflate-raw'));
+  else if (str[0] !== 'r') throw new Error('unknown format');
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+async function shareScript(name, lines) {
+  const data = {
+    n: name, v: lines.find(c => c.video)?.video || '',
+    l: lines.map(c => [c.front, c.back || '', c.read || '', c.speaker || '', Number.isFinite(c.start) ? c.start : null])
+  };
+  const url = `${location.href.split('#')[0]}#share=${await packShare(data)}`;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: name, text: `${name} 대화 스크립트`, url });
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    toast('링크를 복사했어요');
+  } catch (e) {
+    prompt('링크를 복사하세요', url);
+  }
+}
+
+// 공유 링크로 들어왔으면 스크립트를 보여 주고, 원하면 내 앱에 추가하게 한다.
+async function openSharedScript() {
+  const m = location.hash.match(/^#share=([\w-]+)$/);
+  if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search);
+
+  let name, videoId, items;
+  try {
+    const data = await unpackShare(m[1]);
+    name = String(data.n || '공유받은 대화').slice(0, 60);
+    videoId = JP.videoId(data.v);
+    items = data.l.slice(0, SHARE_MAX_LINES).map(([front, back, read, speaker, start]) => ({
+      front: String(front || ''), back: String(back || ''), read: String(read || ''), speaker: String(speaker || ''),
+      start: Number.isFinite(start) ? start : null
+    })).filter(it => it.front);
+    if (!items.length) throw new Error('empty');
+  } catch (e) {
+    return toast('공유 링크를 읽지 못했어요');
+  }
+
+  const decks = (await Store.listDecks()).filter(d => d.kind === 'script');
+  const target = h('select', null,
+    decks.map(d => h('option', { value: d.id }, d.name)),
+    h('option', { value: '' }, '+ 새 덱 만들기'));
+  const add = h('button', {
+    type: 'button', class: 'primary', disabled: isReadOnly(),
+    onclick: async () => {
+      add.disabled = true;
+      const deckId = target.value || (await Store.addDeck(name, 'script')).id;
+      const id = Date.now().toString(36);
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        await Store.addCard(deckId, {
+          type: 'basic', front: it.front, back: it.back, tags: [], reverse: false,
+          script: id, scriptName: name, order: i, speaker: it.speaker,
+          video: videoId, start: it.start, read: it.read, tokens: JP.analyze(it.front)
+        });
+      }
+      dlg.close();
+      toast(`${items.length}줄을 추가했어요`);
+      go({ deckId });
+    }
+  }, '내 앱에 추가');
+
+  const dlg = h('dialog', { class: 'dialog' },
+    h('h2', null, name),
+    h('p', { class: 'hint' }, `공유받은 대화 스크립트 · ${items.length}줄` + (videoId ? ' · 🔊 영상' : '')),
+    h('div', { class: 'list' }, items.map(it => h('div', { class: 'card-row' },
+      h('div', { class: 'card-text' },
+        h('div', { class: 'card-front' }, (it.speaker ? it.speaker + ': ' : '') + it.front),
+        it.back ? h('div', { class: 'card-back' }, it.back) : null,
+        it.read ? h('div', { class: 'card-back' }, it.read) : null)))),
+    isReadOnly() ? h('p', { class: 'hint' }, '로그인하지 않아 볼 수만 있어요.') : h('label', { class: 'field' }, h('span', null, '추가할 덱'), target),
+    h('div', { class: 'row' }, h('button', { type: 'button', onclick: () => dlg.close() }, '닫기'), add));
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg);
+  dlg.showModal();
 }
 
 // ---------- 스크립트 추가 ----------
