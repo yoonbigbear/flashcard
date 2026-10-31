@@ -263,7 +263,13 @@ async function shareScript(name, lines) {
     n: name, v: lines.find(c => c.video)?.video || '',
     l: lines.map(c => [c.front, c.back || '', c.read || '', c.speaker || '', Number.isFinite(c.start) ? c.start : null])
   };
-  const url = `${location.href.split('#')[0]}#share=${await packShare(data)}`;
+  const base = location.href.split('#')[0];
+  let url = '';
+  // 로그인돼 있으면 짧은 링크를 만든다. 안 되면(규칙 미배포, 오프라인 등) 내용을 담은 긴 링크로 대신한다.
+  if (window.Sync && window.Sync.createShare) {
+    try { url = `${base}#s=${await window.Sync.createShare(JSON.stringify(data))}`; } catch (e) { console.error(e); }
+  }
+  if (!url) url = `${base}#share=${await packShare(data)}`;
   if (navigator.share) {
     try {
       await navigator.share({ title: name, text: `${name} 대화 스크립트`, url });
@@ -282,13 +288,22 @@ async function shareScript(name, lines) {
 
 // 공유 링크로 들어왔으면 스크립트를 보여 주고, 원하면 내 앱에 추가하게 한다.
 async function openSharedScript() {
-  const m = location.hash.match(/^#share=([\w-]+)$/);
+  const m = location.hash.match(/^#(share|s)=([\w-]+)$/);
   if (!m) return;
   history.replaceState(null, '', location.pathname + location.search);
 
   let name, videoId, items;
   try {
-    const data = await unpackShare(m[1]);
+    let data;
+    if (m[1] === 's') {
+      // 동기화 모듈(sync.js)이 늦게 올라오므로 잠깐 기다린다.
+      for (let i = 0; i < 100 && !(window.Sync && window.Sync.getShare); i++) await new Promise(r => setTimeout(r, 100));
+      const json = window.Sync && window.Sync.getShare ? await window.Sync.getShare(m[2]) : null;
+      if (!json) throw new Error('not found');
+      data = JSON.parse(json);
+    } else {
+      data = await unpackShare(m[2]);
+    }
     name = String(data.n || '공유받은 대화').slice(0, 60);
     videoId = JP.videoId(data.v);
     items = data.l.slice(0, SHARE_MAX_LINES).map(([front, back, read, speaker, start]) => ({

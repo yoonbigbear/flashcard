@@ -174,4 +174,17 @@ async function start() {
     }
   };
   window.Sync.signOut = () => A.signOut(auth);
+
+  // 링크 공유: 내용은 shares/{id} 에 두고 링크에는 짧은 id 만 넣는다. 읽기는 누구나, 만들기는 로그인한 사람만.
+  const ID_CHARS = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  window.Sync.createShare = async json => {
+    if (!auth.currentUser) throw new Error('login required');
+    const id = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => ID_CHARS[b % ID_CHARS.length]).join('');
+    await F.setDoc(F.doc(db, 'shares', id), { d: json, owner: auth.currentUser.uid, created: Date.now() });
+    return id;
+  };
+  window.Sync.getShare = async id => {
+    const snap = await F.getDoc(F.doc(db, 'shares', id));
+    return snap.exists() ? snap.data().d : null;
+  };
 }

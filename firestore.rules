@@ -11,6 +11,16 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == uid;
     }
 
+    // 링크 공유: 공유 id 를 아는 사람만 한 건씩 읽을 수 있고(목록 조회 불가), 만들기는 로그인한 사람만 가능하다.
+    match /shares/{id} {
+      allow get: if true;
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(['d', 'owner', 'created'])
+        && request.resource.data.d is string
+        && request.resource.data.d.size() < 300000
+        && request.resource.data.owner == request.auth.uid;
+    }
+
     match /users/{uid}/{document=**} {
       allow read: if isOwnerPath(uid) || isSelf(uid);
       allow write: if isSelf(uid);
