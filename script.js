@@ -267,7 +267,14 @@ async function shareScript(name, lines) {
   let url = '';
   // 로그인돼 있으면 짧은 링크를 만든다. 안 되면(규칙 미배포, 오프라인 등) 내용을 담은 긴 링크로 대신한다.
   if (window.Sync && window.Sync.createShare) {
-    try { url = `${base}#s=${await window.Sync.createShare(JSON.stringify(data))}`; } catch (e) { console.error(e); }
+    try {
+      url = `${base}#s=${await window.Sync.createShare(JSON.stringify(data))}`;
+    } catch (e) {
+      console.error(e);
+      toast(e.message === 'login required' ? '로그인하면 짧은 링크를 만들 수 있어요' : '짧은 링크를 만들지 못했어요: ' + (e.code || e.message));
+    }
+  } else {
+    toast('동기화가 아직 준비되지 않아 긴 링크로 만들어요');
   }
   if (!url) url = `${base}#share=${await packShare(data)}`;
   if (navigator.share) {
