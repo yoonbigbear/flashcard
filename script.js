@@ -265,28 +265,31 @@ function addScriptDialog(deckId) {
       if (video.value.trim() && !videoId) return toast('유튜브 주소를 인식하지 못했어요');
       cancel.disabled = save.disabled = true;
 
-      if (reading.checked) {
-        status.textContent = '일본어 사전을 불러오는 중… (처음 한 번만 걸려요)';
-        try { await JP.load(); } catch (e) { toast(e.message + ' 발음 없이 저장해요.'); }
-      }
-
+      // 카드를 먼저 저장한다. 사전 로딩이 오래 걸리거나 멈춰도 입력한 내용은 남는다.
       status.textContent = '저장하는 중…';
       const id = Date.now().toString(36);
       const scriptName = name.value.trim() || '대화 ' + new Date().toLocaleDateString();
+      const saved = [];
       for (let i = 0; i < items.length; i++) {
         const it = items[i];
         const tokens = JP.analyze(it.front);
-        await Store.addCard(deckId, {
+        saved.push(await Store.addCard(deckId, {
           type: 'basic', front: it.front, back: it.back, tags: [], reverse: false,
           script: id, scriptName, order: i, speaker: it.speaker,
           video: videoId, start: Number.isFinite(it.start) ? it.start : null,
           read: it.read || (JP.isLoaded() ? JP.hangulReading(tokens) : ''),
           tokens
-        });
+        }));
       }
       dlg.close();
       toast(`${items.length}줄을 저장했어요`);
       render();
+      // 발음은 저장 뒤에 사전을 받아 채운다(처음 한 번만 걸려요).
+      if (reading.checked && !JP.isLoaded()) {
+        // 화면이 먼저 그려지도록 잠깐 양보한 뒤 사전을 불러온다.
+        await new Promise(r => setTimeout(r, 50));
+        if (await fillReadings(saved)) render();
+      }
     }
   }, '저장');
 
