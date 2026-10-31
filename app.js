@@ -27,6 +27,8 @@ function h(tag, attrs, ...children) {
 
 // 네이티브 append() 는 null 을 "null" 글자로, 배열을 통째로 문자열로 바꾼다. h() 처럼 걸러서 붙인다.
 const appendAll = (parent, ...kids) => parent.append(...kids.flat(Infinity).filter(k => k != null && k !== false));
+// replaceChildren 도 마찬가지로 null 을 "null" 글자로 바꾸므로 걸러서 바꾼다.
+const replaceAll = (parent, ...kids) => parent.replaceChildren(...kids.flat(Infinity).filter(k => k != null && k !== false));
 
 function toast(msg) {
   $toast.textContent = msg;
@@ -954,7 +956,7 @@ async function renderQuiz(deckId) {
 
   function finish() {
     count.textContent = `${questions.length} / ${questions.length}`;
-    stage.replaceChildren(
+    replaceAll(stage,
       h('div', { class: 'done' }, score === questions.length ? '🎉' : '👍',
         h('p', null, `${questions.length}문제 중 ${score}개 정답`)),
       isReadOnly() ? null : h('p', { class: 'hint' }, '틀린 문제는 오답노트에 담겼어요.'),
@@ -1039,9 +1041,9 @@ async function renderMatch(deckId) {
 
   function finish() {
     const sec = Math.round((Date.now() - started) / 1000);
-    grid.replaceChildren(
+    replaceAll(grid,
       h('div', { class: 'done' }, '🎉', h('p', null, `${sec}초 · 실수 ${mistakes}번`)),
-      mistakes && !isReadOnly() ? h('p', { class: 'hint' }, '헷갈린 카드는 오답노트에 담겼어요.') : null,
+      mistakes > 0 && !isReadOnly() ? h('p', { class: 'hint' }, '헷갈린 카드는 오답노트에 담겼어요.') : null,
       h('button', { class: 'primary big', onclick: () => render() }, '한 판 더'),
       h('button', { onclick: () => go({ deckId, tag: nav.tag }) }, '덱으로 돌아가기'));
   }

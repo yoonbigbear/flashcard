@@ -337,7 +337,7 @@ async function renderScriptPractice(deckId, scriptId) {
 
   function paint() {
     const blanks = lines.reduce((n, c) => n + scriptTokens(c).filter(t => t.k === 2).length, 0);
-    panel.replaceChildren(
+    replaceAll(panel,
       h('h2', null, `${lines.length}줄 · 빈칸 후보 ${blanks}개`),
       h('div', { class: 'chips' }, Object.entries(SCRIPT_PRESET_NAMES).map(([key, label]) =>
         h('button', {
@@ -529,10 +529,10 @@ function runScript(deckId, lines, opts) {
   function finish() {
     bar.firstChild.style.width = '100%';
     count.textContent = `${rounds.length} / ${rounds.length}`;
-    stage.replaceChildren(
+    replaceAll(stage,
       h('div', { class: 'done' }, right === total ? '🎉' : '👍',
         h('p', null, total ? `빈칸 ${total}개 중 ${right}개 정답` : '빈칸이 없었어요')),
-      total && right < total && !isReadOnly() ? h('p', { class: 'hint' }, '틀린 줄은 오답노트에 담겼어요.') : null,
+      total > 0 && right < total && !isReadOnly() ? h('p', { class: 'hint' }, '틀린 줄은 오답노트에 담겼어요.') : null,
       h('button', { class: 'primary big', onclick: () => runScript(deckId, lines, opts) }, '다시 (새 빈칸)'),
       h('button', { onclick: () => render() }, '난이도 바꾸기'),
       h('button', { onclick: () => go({ deckId }) }, '덱으로 돌아가기'));
