@@ -220,8 +220,9 @@ async function fillReadings(lines) {
     toast(e.message);
     return false;
   }
-  for (const c of lines) {
-    const tokens = JP.analyze(c.front);
+  const all = await JP.analyzeMany(lines.map(c => c.front));
+  for (const [i, c] of lines.entries()) {
+    const tokens = all[i];
     await Store.updateCard(c.id, { tokens, ...(c.read ? {} : { read: JP.hangulReading(tokens) }) });
   }
   toast('발음을 만들었어요. 틀린 곳은 ✎ 로 고칠 수 있어요');
@@ -242,7 +243,6 @@ function addScriptDialog(deckId) {
     type: 'url', class: 'text-input', placeholder: '유튜브 링크 (선택, 원어민 소리로 듣기 연습)'
   });
   const reading = h('input', { type: 'checkbox' });
-  reading.checked = true;
   const status = h('p', { class: 'hint' });
 
   text.addEventListener('input', () => {
@@ -277,7 +277,7 @@ function addScriptDialog(deckId) {
           type: 'basic', front: it.front, back: it.back, tags: [], reverse: false,
           script: id, scriptName, order: i, speaker: it.speaker,
           video: videoId, start: Number.isFinite(it.start) ? it.start : null,
-          read: it.read || (JP.isLoaded() ? JP.hangulReading(tokens) : ''),
+          read: it.read || '',
           tokens
         }));
       }
@@ -285,11 +285,7 @@ function addScriptDialog(deckId) {
       toast(`${items.length}줄을 저장했어요`);
       render();
       // 발음은 저장 뒤에 사전을 받아 채운다(처음 한 번만 걸려요).
-      if (reading.checked && !JP.isLoaded()) {
-        // 화면이 먼저 그려지도록 잠깐 양보한 뒤 사전을 불러온다.
-        await new Promise(r => setTimeout(r, 50));
-        if (await fillReadings(saved)) render();
-      }
+      if (reading.checked && await fillReadings(saved)) render();
     }
   }, '저장');
 
@@ -297,7 +293,7 @@ function addScriptDialog(deckId) {
     h('h2', null, '대화 스크립트 추가'),
     h('div', { class: 'card-fields' },
       name, video, text, preview,
-      h('label', { class: 'check' }, reading, '한글 발음 자동 생성 (처음 한 번 사전 약 17MB 다운로드)'),
+      h('label', { class: 'check' }, reading, '한글 발음 자동 생성 (사전 약 17MB 다운로드, 저장 뒤 백그라운드에서 만들어요)'),
       status),
     h('div', { class: 'row' }, cancel, save));
   dlg.addEventListener('close', () => dlg.remove());

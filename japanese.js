@@ -7,8 +7,6 @@
 const JP = (() => {
   const KUROMOJI_VER = '0.1.2';
   const KUROMOJI_BASE = `https://cdn.jsdelivr.net/npm/kuromoji@${KUROMOJI_VER}/`;
-  const KUROMOJI_JS = KUROMOJI_BASE + 'build/kuromoji.js';
-  const KUROMOJI_DICT = KUROMOJI_BASE + 'dict/';
 
   const RE_JA = /[぀-ヿ㐀-鿿]/g;
   const RE_KO = /[가-힣]/g;
@@ -172,38 +170,52 @@ const JP = (() => {
   }
 
   // ---------- 형태소 분석(kuromoji) ----------
-  let tokenizerPromise = null;
-  let tokenizer = null;
-
-  function loadScript(src) {
-    return new Promise((resolve, reject) => {
-      const el = document.createElement('script');
-      el.src = src;
-      el.onload = resolve;
-      el.onerror = () => reject(new Error('일본어 사전 스크립트를 불러오지 못했어요.'));
-      document.head.append(el);
-    });
-  }
+  // 사전은 Web Worker 에서 불러오고 분석한다(화면이 얼지 않게).
+  let loadPromise = null;
+  let worker = null;
+  let ready = false;
+  let nextId = 1;
+  const pending = new Map();
 
   // 처음 한 번만 사전(약 17MB)을 받는다. 이후에는 서비스워커 캐시를 쓴다.
   function load() {
-    tokenizerPromise ||= (async () => {
-      if (!window.kuromoji) await loadScript(KUROMOJI_JS);
-      return new Promise((resolve, reject) => {
-        window.kuromoji.builder({ dicPath: KUROMOJI_DICT }).build((err, t) => {
-          if (err) return reject(new Error('일본어 사전을 불러오지 못했어요.'));
-          tokenizer = t;
-          resolve(t);
-        });
-      });
-    })().catch(e => { tokenizerPromise = null; throw e; });
-    return tokenizerPromise;
+    loadPromise ||= new Promise((resolve, reject) => {
+      worker = new Worker('kuromoji-worker.js');
+      worker.onmessage = e => {
+        const m = e.data;
+        if (m.type === 'init') {
+          if (m.error) return reject(new Error(m.error));
+          ready = true;
+          resolve();
+        } else if (m.type === 'tokenize') {
+          pending.get(m.id)?.(m.result);
+          pending.delete(m.id);
+        }
+      };
+      worker.onerror = () => reject(new Error('일본어 사전을 불러오지 못했어요.'));
+      worker.postMessage({ type: 'init', base: KUROMOJI_BASE });
+    }).catch(e => { worker?.terminate(); worker = null; loadPromise = null; throw e; });
+    return loadPromise;
   }
 
+  // 사전이 로드돼 있으면 워커에서 분석하고, 아니면 대체 분리기를 쓴다.
+  async function analyzeMany(texts) {
+    if (!ready) return texts.map(s => fallbackTokens(s));
+    const id = nextId++;
+    const raw = await new Promise(resolve => {
+      pending.set(id, resolve);
+      worker.postMessage({ type: 'tokenize', id, texts });
+    });
+    return raw.map(mapTokens);
+  }
+  const analyzeAsync = async text => (await analyzeMany([text]))[0];
+
+  // 동기 버전은 사전 없이 대체 분리기만 쓴다. 사전 분석이 필요하면 analyzeAsync/analyzeMany.
+  const analyze = fallbackTokens;
+
   const SYMBOL = '記号';
-  function analyze(text) {
-    if (!tokenizer) return fallbackTokens(text);
-    return tokenizer.tokenize(text).map(t => {
+  function mapTokens(list) {
+    return list.map(t => {
       const s = t.surface_form;
       const pron = t.pronunciation && t.pronunciation !== '*' ? t.pronunciation
         : t.reading && t.reading !== '*' ? t.reading
@@ -345,7 +357,7 @@ const JP = (() => {
   const sameAnswer = (a, b) => normalize(a) === normalize(b);
 
   return {
-    parseScript, parseTime, formatTime, videoId, analyze, fallbackTokens, load, hangulReading, kanaToHangul, sameAnswer,
-    isLoaded: () => !!tokenizer
+    parseScript, parseTime, formatTime, videoId, analyze, analyzeAsync, analyzeMany, fallbackTokens, load, hangulReading, kanaToHangul, sameAnswer,
+    isLoaded: () => ready
   };
 })();

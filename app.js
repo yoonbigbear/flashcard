@@ -497,7 +497,7 @@ function editCard(card, onDone) {
           const v = form.get();
           if (!v) return;
           // 스크립트 줄의 원문이 바뀌면 빈칸 후보(단어 분리)도 다시 만든다.
-          if (card.script && v.front !== card.front) v.tokens = JP.analyze(v.front);
+          if (card.script && v.front !== card.front) v.tokens = await JP.analyzeAsync(v.front);
           await Store.updateCard(card.id, v);
           dlg.close();
           onDone();
