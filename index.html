@@ -9,6 +9,14 @@
   <link rel="icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="style.css">
+  <script>
+    // 첫 화면이 번쩍이지 않게 CSS 가 적용되기 전에 테마를 정한다. (app.js 의 applyTheme 와 같은 규칙)
+    (function () {
+      var t = localStorage.getItem('theme') || 'system';
+      var dark = t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    })();
+  </script>
 </head>
 <body>
   <header class="topbar">

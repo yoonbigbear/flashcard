@@ -1198,8 +1198,34 @@ function semanticPanel() {
   return h('section', { class: 'panel' }, h('h2', null, '의미 검색 (AI)'), status, btn);
 }
 
+// 테마: 'system'(기기 설정을 따름) | 'light' | 'dark'. index.html 의 인라인 스크립트가 첫 화면을 먼저 맞춘다.
+const THEME_KEY = 'theme';
+const THEME_LABELS = { system: '시스템', light: '라이트', dark: '다크' };
+const darkQuery = matchMedia('(prefers-color-scheme: dark)');
+function applyTheme() {
+  const t = localStorage.getItem(THEME_KEY) || 'system';
+  const dark = t === 'dark' || (t === 'system' && darkQuery.matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = dark ? '#1e2028' : '#4f6df5';
+}
+darkQuery.addEventListener('change', applyTheme);
+applyTheme();
+
+function themePanel() {
+  const cur = localStorage.getItem(THEME_KEY) || 'system';
+  return h('section', { class: 'panel' },
+    h('h2', null, '화면 테마'),
+    h('div', { class: 'row' }, Object.entries(THEME_LABELS).map(([k, label]) =>
+      h('button', {
+        class: k === cur ? 'primary' : '',
+        onclick: () => { localStorage.setItem(THEME_KEY, k); applyTheme(); render(); }
+      }, label))));
+}
+
 function renderSettings() {
   setHeader('설정');
+  $view.append(themePanel());
   const fileInput = h('input', { type: 'file', accept: 'application/json,.json', hidden: true });
   fileInput.addEventListener('change', async () => {
     const file = fileInput.files[0];
