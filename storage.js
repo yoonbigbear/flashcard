@@ -3,6 +3,7 @@
 //
 // card 필드
 //   type     'basic'(앞/뒤) | 'cloze'(front 안에 {{빈칸}} 표시) | 'sentence'(문장 + 뜻 + 발음)
+//            | 'kanji'(한자 + 뜻 + 음독/훈독 + 예시 단어. 필드 설명은 kanji.js)
 //   pronJa   일본어 발음 (sentence 전용, 선택),  pronKo  한국어 발음 (sentence 전용, 선택)
 //   examples 예시 문장 배열 [{front, back, pronJa, pronKo}] (basic/cloze 전용, 선택). 문장 카드 형식이라
 //            카드를 뒤집으면 함께 보이고, '문장 문제'에 문장 카드와 섞여 나온다.
@@ -29,7 +30,9 @@ const Store = (() => {
     for (const k of Object.keys(CARD_DEFAULTS)) if (card[k] == null) card[k] = CARD_DEFAULTS[k];
     card.tags = Array.isArray(card.tags) ? card.tags : [];
     if (!Array.isArray(card.examples)) card.examples = [];
-    if (!card.examples.length && card.example) {
+    // 한자 카드의 example 은 검색용 글(읽기·단어)이라 예시 문장으로 바꾸지 않는다.
+    if (card.type === 'kanji') card.words = Array.isArray(card.words) ? card.words : [];
+    else if (!card.examples.length && card.example) {
       card.examples = card.example.split(/\r?\n\s*\r?\n/).map(t => t.trim()).filter(Boolean)
         .map(front => ({ front, back: '', pronJa: '', pronKo: '' }));
     }
@@ -61,7 +64,10 @@ const Store = (() => {
   }
 
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-  const copy = c => ({ ...c, tags: [...c.tags], examples: c.examples.map(e => ({ ...e })) });
+  const copy = c => ({
+    ...c, tags: [...c.tags], examples: c.examples.map(e => ({ ...e })),
+    ...(Array.isArray(c.words) ? { words: c.words.map(w => ({ ...w })) } : {})
+  });
 
   // 동기화 훅
   const writeListeners = [];   // 로컬에서 바뀐 것 → 클라우드로
@@ -76,7 +82,7 @@ const Store = (() => {
     async listDecks() {
       return data.decks.map(d => ({ ...d }));
     },
-    // kind: 'script'(대화 스크립트 덱) | 생략하면 일반 카드 덱
+    // kind: 'script'(대화 스크립트 덱) | 'kanji'(한자 덱) | 생략하면 일반 카드 덱
     async addDeck(name, kind) {
       const deck = { id: uid(), name, created: Date.now(), updated: Date.now(), ...(kind ? { kind } : {}) };
       data.decks.push(deck);
@@ -114,6 +120,16 @@ const Store = (() => {
       save();
       emit('card', 'set', copy(card));
       return copy(card);
+    },
+    // 여러 장을 한 번에 추가한다 (저장은 한 번만). 목록 순서대로 created 가 늘어난다.
+    async addCards(deckId, list) {
+      const now = Date.now();
+      const added = list.map((fields, i) =>
+        normalizeCard({ ...fields, id: uid() + i.toString(36), deckId, created: now + i, updated: now }));
+      data.cards.push(...added);
+      save();
+      added.forEach(c => emit('card', 'set', copy(c)));
+      return added.map(copy);
     },
     async updateCard(id, patch) {
       const c = data.cards.find(c => c.id === id);

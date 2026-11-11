@@ -269,3 +269,34 @@ textarea:focus, input:focus { outline: 2px solid var(--primary); outline-offset:
 
 .example-parts { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .example .pron { margin-top: 2px; }
+
+/* 한자 덱 */
+[lang="ja"] { font-family: "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", "Noto Sans JP", "Noto Sans CJK JP", Meiryo, sans-serif; }
+[lang="ko"] { font-family: system-ui, -apple-system, "Noto Sans KR", sans-serif; }
+.kanji-big { font-size: 6rem; font-weight: 500; line-height: 1.2; }
+.kanji-big.small { font-size: 3rem; }
+.kanji-front { font-size: 1.5rem; font-weight: 500; }
+.kanji-read { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.flip-card .kanji-read, .kanji-q .kanji-read { justify-content: center; font-weight: 400; }
+.kanji-q { flex-direction: column; gap: 6px; }
+.kanji-q .example { align-self: stretch; }
+.kanji-q.write { min-height: 0; padding: 16px; font-size: 1.2rem; }
+.kanji-word { font-size: 2.6rem; font-weight: 500; }
+.kanji-options { display: grid; grid-template-columns: 1fr 1fr; }
+.kanji-options .opt { text-align: center; font-size: 2.4rem; padding: 18px 0; }
+.kanji-answer { font-size: 3.5rem; line-height: 1.2; text-align: center; }
+.kanji-add > summary { cursor: pointer; font-weight: 600; }
+.pad {
+  position: relative; align-self: center; width: min(100%, 320px); aspect-ratio: 1;
+  background: var(--surface); border: 2px solid var(--border); border-radius: var(--radius); overflow: hidden;
+}
+/* 가운데 십자 보조선 */
+.pad::before, .pad::after { content: ""; position: absolute; pointer-events: none; }
+.pad::before { left: 50%; top: 0; bottom: 0; border-left: 1px dashed var(--border); }
+.pad::after { top: 50%; left: 0; right: 0; border-top: 1px dashed var(--border); }
+.pad-canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+.pad-guide {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-family: "UD Digi Kyokasho N-R", "YuKyokasho", "Klee", "Hiragino Mincho ProN", "Yu Mincho", serif;
+  font-size: 250px; line-height: 1; color: var(--primary); opacity: 0.35; pointer-events: none; user-select: none;
+}

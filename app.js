@@ -114,7 +114,7 @@ function clozeNodes(text, reveal, focus = null) {
 }
 
 // 앞/뒤 한 쌍으로 다루는 카드 (4지선다 보기, 매칭 게임에 쓸 수 있다)
-const isPairCard = c => c.type === 'basic' || c.type === 'sentence';
+const isPairCard = c => c.type === 'basic' || c.type === 'sentence' || c.type === 'kanji';
 
 // 문장 카드의 발음 줄 (일본어 발음 / 한국어 발음). 비어 있으면 생략.
 function pronNodes(card) {
@@ -155,6 +155,7 @@ function sentenceItems(cards) {
 
 // 카드 한 면의 내용. dir: 'f'(앞→뒤) | 'r'(뒤→앞)
 function faceNodes(card, dir, flipped) {
+  if (card.type === 'kanji') return kanjiFaceNodes(card, flipped);
   if (card.type === 'sentence') {
     const q = dir === 'r' ? card.back : card.front;
     return flipped
@@ -182,6 +183,7 @@ function dueItems(cards) {
   const items = [];
   for (const c of cards) {
     if (c.script) continue; // 대화 스크립트 줄은 따로 연습한다
+    if (isNewKanji(c)) continue; // 아직 배우지 않은 한자는 한자 덱의 학습에서 조금씩 꺼낸다
     if (c.due <= end) items.push({ card: c, dir: 'f' });
     if ((c.type === 'sentence' || (c.type === 'basic' && c.reverse)) && c.rdue <= end) items.push({ card: c, dir: 'r' });
   }
@@ -256,6 +258,7 @@ async function render() {
     if (nav.mode === 'sentence') return renderSentence(nav.deckId);
     if (nav.mode === 'match') return renderMatch(nav.deckId);
     if (nav.mode === 'script') return renderScriptPractice(nav.deckId, nav.scriptId);
+    if (KANJI_MODE_TITLES[nav.mode]) return renderKanjiPractice(nav.deckId, nav.mode);
     return renderDeck(nav.deckId);
   }
   return renderDecks();
@@ -305,7 +308,9 @@ async function renderDecks() {
     list.append(h('button', { class: 'deck-item', onclick: () => go({ deckId: deck.id }) },
       h('div', { class: 'deck-name' }, deck.name),
       h('div', { class: 'deck-meta' },
-        scriptDeck ? `대화 스크립트 · ${cards.length}줄` : `카드 ${cards.length}장`,
+        scriptDeck ? `대화 스크립트 · ${cards.length}줄`
+          : isKanjiDeck(deck) ? `한자 ${cards.length}자 · 배운 한자 ${cards.filter(c => !isNewKanji(c)).length}자`
+          : `카드 ${cards.length}장`,
         due > 0 ? h('span', { class: 'badge' }, `복습 ${due}`) : null)));
   }
 
@@ -323,19 +328,42 @@ async function renderDecks() {
   }, '+'));
 }
 
-// 덱 종류: 일반 카드 덱 / 대화 스크립트 덱. 스크립트 기능은 스크립트 덱에서만 나온다.
+// 덱 종류: 일반 카드 덱 / 대화 스크립트 덱 / 한자 덱(kanji.js). 스크립트 기능은 스크립트 덱에서만 나온다.
 const isScriptDeck = (deck, cards) => deck.kind === 'script' || cards.some(c => c.script);
 
 function newDeckDialog() {
   const name = h('input', { type: 'text', class: 'text-input', placeholder: '덱 이름' });
   const kind = h('select', { 'aria-label': '덱 종류' },
     h('option', { value: 'cards' }, '일반 카드 덱 (앞/뒤, 빈칸, 퀴즈)'),
-    h('option', { value: 'script' }, '대화 스크립트 덱 (대화문 빈칸 채우기)'));
+    h('option', { value: 'script' }, '대화 스크립트 덱 (대화문 빈칸 채우기)'),
+    h('option', { value: 'kanji' }, '한자 덱 (일본어 상용한자, 급수별)'));
+  // 한자 덱은 급수를 고르면 그 급수의 한자가 미리 채워진다. 이름을 비워 두면 '한자 N5' 처럼 붙인다.
+  const level = h('select', { 'aria-label': '한자 급수', hidden: true },
+    KANJI_LEVELS.map(([value, label]) => h('option', { value }, label)));
+  const kanjiName = () => (level.value ? `한자 ${level.value}` : '');
+  const syncKind = () => {
+    level.hidden = kind.value !== 'kanji';
+    name.placeholder = (kind.value === 'kanji' && kanjiName()) || '덱 이름';
+  };
+  kind.addEventListener('change', syncKind);
+  level.addEventListener('change', syncKind);
 
+  let busy = false;
   const create = async () => {
-    const n = name.value.trim();
+    if (busy) return;
+    const isKanji = kind.value === 'kanji';
+    const n = name.value.trim() || (isKanji ? kanjiName() : '');
     if (!n) return toast('덱 이름을 입력하세요');
-    const deck = await Store.addDeck(n, kind.value === 'script' ? 'script' : undefined);
+    busy = true;
+    let deck;
+    try {
+      if (isKanji && level.value) toast('한자를 채우는 중…');
+      deck = isKanji ? await createKanjiDeck(n, level.value)
+        : await Store.addDeck(n, kind.value === 'script' ? 'script' : undefined);
+    } catch (e) {
+      busy = false;
+      return toast('한자 목록을 불러오지 못했어요. 인터넷 연결을 확인하세요.');
+    }
     dlg.close();
     go({ deckId: deck.id });
   };
@@ -343,7 +371,7 @@ function newDeckDialog() {
 
   const dlg = h('dialog', { class: 'dialog' },
     h('h2', null, '새 덱'),
-    h('div', { class: 'card-fields' }, name, kind),
+    h('div', { class: 'card-fields' }, name, kind, level),
     h('div', { class: 'row' },
       h('button', { type: 'button', onclick: () => dlg.close() }, '취소'),
       h('button', { type: 'button', class: 'primary', onclick: create }, '만들기')));
@@ -487,7 +515,7 @@ function cardForm(card) {
 }
 
 function editCard(card, onDone) {
-  const form = cardForm(card);
+  const form = card.type === 'kanji' ? kanjiForm(card) : cardForm(card);
   const dlg = h('dialog', { class: 'dialog' },
     h('h2', null, '카드 수정'),
     form.el,
@@ -537,6 +565,9 @@ async function renderDeck(deckId) {
     if (!isReadOnly()) $view.append(deckManageRow(deck, everything.length));
     return;
   }
+
+  // 한자 덱: 진도·한자 전용 연습이 있는 화면을 따로 그린다.
+  if (!isVirtualDeck(deckId) && isKanjiDeck(deck)) return renderKanjiDeck(deck, everything);
 
   // 태그 필터
   if (allTags.length) {
@@ -672,11 +703,13 @@ function cardRow(c, extra) {
   const body = c.type === 'cloze' ? clozeNodes(c.front, true) : c.front;
   return h('div', { class: 'card-row' },
     h('div', { class: 'card-text' },
-      h('div', { class: 'card-front' }, body),
+      h('div', { class: 'card-front' + (c.type === 'kanji' ? ' kanji-front' : ''), lang: c.type === 'kanji' ? 'ja' : null }, body),
       c.back ? h('div', { class: 'card-back' }, c.back) : null,
       c.type === 'sentence' ? pronNodes(c) : null,
+      c.type === 'kanji' ? kanjiInfoNodes(c) : null,
       exampleNode(c),
       h('div', { class: 'card-meta' },
+        c.type === 'kanji' ? h('span', { class: 'tag kind' }, '한자') : null,
         c.type === 'cloze' ? h('span', { class: 'tag kind' }, '빈칸') : null,
         c.type === 'sentence' ? h('span', { class: 'tag kind' }, '문장') : null,
         c.reverse ? h('span', { class: 'tag kind' }, '↔ 양방향') : null,
@@ -848,8 +881,10 @@ async function renderStudy(deckId) {
   setHeader('학습', { deckId, tag: nav.tag });
   const cards = (await deckCards(deckId)).filter(c => !c.script);
   const scoped = nav.tag ? cards.filter(c => c.tags.includes(nav.tag)) : cards;
+  // 한자 덱에서는 복습할 한자에 새 한자를 조금씩 더해서 학습한다.
+  const kanjiDeck = !isVirtualDeck(deckId) && isKanjiDeck((await Store.listDecks()).find(d => d.id === deckId));
   flashSession({
-    items: dueItems(scoped),
+    items: [...dueItems(scoped), ...(kanjiDeck ? newKanjiItems(scoped) : [])],
     patchFn: ratePatch,
     onFinish: () => go({ deckId, tag: nav.tag })
   });
@@ -885,7 +920,7 @@ function makeQuestion(card, dir, pool) {
     prompt = f ? card.front : card.back;
     answer = f ? card.back : card.front;
     distractors = pool
-      .filter(c => c.id !== card.id && isPairCard(c))
+      .filter(c => c.id !== card.id && isPairCard(c) && (c.type === 'kanji') === (card.type === 'kanji'))
       .map(c => (f ? c.back : c.front));
   }
   distractors = unique(distractors.filter(w => w !== answer));
