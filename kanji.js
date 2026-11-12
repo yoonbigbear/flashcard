@@ -3,7 +3,7 @@
 // 카드(type 'kanji')
 //   front  한자,  back  뜻(훈음, 예: 배울 학)
 //   on     음독(가타카나),  kun  훈독(히라가나, 괄호 안은 오쿠리가나)
-//   words  예시 단어 [{w: 단어, r: 읽기, m: 뜻}]
+//   words  예시 단어 [{w: 단어, r: 읽기, m: 뜻, k: 이 한자를 음독('o')으로 읽는지 훈독('k')으로 읽는지 (알 때만)}]
 //   no     급수 안에서의 순서(자주 쓰는 한자가 앞).  strokes  획수
 //   example 검색용으로 읽기·단어를 합친 글 (자동으로 만든다)
 //
@@ -13,6 +13,8 @@
 //
 // 데이터(kanji-data.json): 급수·획수·음독/훈독은 KANJIDIC2(EDRDG, CC BY-SA 4.0)에서 가져왔고(kanji-data 프로젝트 경유),
 //       한국어 뜻과 예시 단어는 따로 붙였다. 예시 단어의 읽기는 JMdict 로 확인했다.
+//       v2: 음독·훈독이 모두 있는 한자는 되도록 두 읽기의 단어를 하나씩 싣고(단어 추가), 단어마다 음/훈 표시를 붙였다.
+//       읽기의 한글 발음은 데이터에 두지 않고 화면에 그릴 때 JP.kanaToHangul 로 만든다.
 const KANJI_LEVELS = [
   ['N5', 'JLPT N5 · 79자 (가장 기초)'],
   ['N4', 'JLPT N4 · 166자'],
@@ -51,6 +53,31 @@ function loadKanjiData() {
   return kanjiDataPromise;
 }
 
+const stockKanjiWords = words => words.map(([w, r, m, k]) => ({ w, r, m, ...(k ? { k } : {}) }));
+
+// 데이터(kanji-data.json)가 바뀌었을 때, 이미 만들어 둔 덱의 카드에 새 예시 단어·음/훈 표시를 반영한다.
+// 사용자가 읽기나 단어를 고친 카드는 건드리지 않는다: 음독·훈독이 그대로이고,
+// 카드의 단어가 새 목록의 앞부분과 같을 때(= 예전 데이터 그대로일 때)만 바꾼다.
+async function upgradeKanjiCards(cards) {
+  if (isReadOnly() || !cards.some(c => kanjiWords(c).length)) return false;
+  let data;
+  try { data = await loadKanjiData(); } catch (e) { return false; }
+  const stock = new Map(Object.values(data.levels).flat().map(e => [e[0], e]));
+  const patches = [];
+  for (const c of cards) {
+    const e = stock.get(c.front);
+    const mine = kanjiWords(c);
+    if (!e || !mine.length || c.on !== e[2] || c.kun !== e[3]) continue;
+    const next = stockKanjiWords(e[5]);
+    if (mine.length > next.length) continue;
+    if (!mine.every((w, i) => w.w === next[i].w && w.r === next[i].r && w.m === next[i].m)) continue;
+    if (mine.length === next.length && mine.every((w, i) => (w.k || '') === (next[i].k || ''))) continue;
+    patches.push([c.id, { words: next, example: kanjiSearchText({ ...c, words: next }) }]);
+  }
+  if (patches.length) await Store.updateCards(patches);
+  return patches.length > 0;
+}
+
 // 한자 덱을 만들고, 급수를 골랐으면 그 급수의 한자를 채운다.
 async function createKanjiDeck(name, level) {
   const list = level ? (await loadKanjiData()).levels[level] : [];
@@ -59,7 +86,7 @@ async function createKanjiDeck(name, level) {
   await Store.addCards(deck.id, list.map(([k, mean, on, kun, strokes, words], i) => {
     const card = {
       type: 'kanji', front: k, back: mean, on, kun, strokes, no: i + 1,
-      words: words.map(([w, r, m]) => ({ w, r, m }))
+      words: stockKanjiWords(words)
     };
     card.example = kanjiSearchText(card);
     return card;
@@ -68,15 +95,38 @@ async function createKanjiDeck(name, level) {
 }
 
 // ---------- 표시 ----------
-const kanjiWordNode = w => h('div', { lang: 'ja' }, w.r && w.r !== w.w ? `${w.w}（${w.r}）` : w.w,
+// 읽기(가나)의 한글 발음. 여러 읽기는 '、' 로 나뉘어 있고, 괄호(오쿠리가나)는 그대로 둔다.
+// お단·う단 뒤의 う 는 장음이라 적지 않는다(とうきょう → 도쿄). 다만 괄호 안 오쿠리가나의 끝이나
+// う 로 끝나는 동사(思う)의 마지막 う, 낱말 경계에 걸린 う(みずうみ)는 장음이 아니다.
+const KANJI_LONG_U = /(ミズウミ|ツツウラ)|([ウクスツヌフムユルグズヅブプュオコソトノホモヨロゴゾドボポョ])ウ(?!\))/g;
+function kanjiKo(kana, word) {
+  const verb = /[うウ]$/.test(word || '');
+  return String(kana || '').split('、').map(t => {
+    let s = t.replace(/-/g, '').trim().replace(/[ぁ-ゖ]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60));
+    const tail = verb && s.endsWith('ウ') ? 'ウ' : '';
+    if (tail) s = s.slice(0, -1);
+    return JP.kanaToHangul(s.replace(KANJI_LONG_U, (m, keep, a) => keep || a + 'ー') + tail);
+  }).filter(Boolean).join(', ');
+}
+const kanjiKoNode = (kana, word) => {
+  const ko = kanjiKo(kana, word);
+  return ko ? h('span', { class: 'pron-ko', lang: 'ko' }, ko) : null;
+};
+const KANJI_WORD_KINDS = { o: '음', k: '훈' };
+
+// 예시 단어 한 줄: [음/훈] 단어（읽기）한글 발음 뜻
+const kanjiWordNode = w => h('div', { lang: 'ja' },
+  KANJI_WORD_KINDS[w.k] ? h('span', { class: 'pron-label', lang: 'ko' }, KANJI_WORD_KINDS[w.k]) : null,
+  w.r && w.r !== w.w ? `${w.w}（${w.r}）` : w.w,
+  w.r ? kanjiKoNode(w.r, w.w) : null,
   w.m ? h('span', { lang: 'ko' }, ' ' + w.m) : null);
 
 // 읽기(음독/훈독) 줄과 예시 단어
 function kanjiInfoNodes(c) {
   return [
     c.on || c.kun ? h('div', { class: 'pron kanji-read', lang: 'ja' },
-      c.on ? h('span', null, h('span', { class: 'pron-label', lang: 'ko' }, '음'), c.on) : null,
-      c.kun ? h('span', null, h('span', { class: 'pron-label', lang: 'ko' }, '훈'), c.kun) : null) : null,
+      c.on ? h('span', null, h('span', { class: 'pron-label', lang: 'ko' }, '음'), c.on, kanjiKoNode(c.on)) : null,
+      c.kun ? h('span', null, h('span', { class: 'pron-label', lang: 'ko' }, '훈'), c.kun, kanjiKoNode(c.kun)) : null) : null,
     kanjiWords(c).length ? h('div', { class: 'example' }, kanjiWords(c).map(kanjiWordNode)) : null
   ];
 }
@@ -119,7 +169,12 @@ function kanjiForm(card) {
       if (!f || !b) { toast('한자와 뜻을 입력하세요'); return null; }
       const list = words.value.split(/\r?\n/).map(line => line.split(/[|｜]/).map(t => t.trim()))
         .filter(p => p[0])
-        .map(([w, r, m]) => ({ w, r: r || '', m: m || '' }));
+        .map(([w, r, m]) => ({ w, r: r || '', m: m || '' }))
+        // 읽기를 고치지 않은 단어는 음/훈 표시를 그대로 둔다.
+        .map(w => {
+          const old = kanjiWords(c).find(o => o.w === w.w && o.r === w.r);
+          return old && old.k ? { ...w, k: old.k } : w;
+        });
       const v = {
         type: 'kanji', front: f, back: b, on: on.value.trim(), kun: kun.value.trim(), words: list,
         tags: c.tags || [], reverse: false, examples: [],
@@ -146,6 +201,9 @@ function renderKanjiDeck(deck, everything) {
   const due = dueItems(cards);
   const fresh = newKanjiItems(cards);
   const studyCount = due.length + fresh.length;
+
+  // 데이터가 새로워졌으면 예시 단어를 반영하고 다시 그린다 (바뀐 것이 없으면 아무 일도 없다).
+  upgradeKanjiCards(cards).then(changed => { if (changed && nav.deckId === deckId && !nav.mode) render(); }).catch(() => {});
 
   // 진도
   const bar = h('div', { class: 'progress' }, h('div', { class: 'progress-fill' }));

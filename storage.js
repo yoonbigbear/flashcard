@@ -138,6 +138,20 @@ const Store = (() => {
       save();
       emit('card', 'set', copy(c));
     },
+    // 여러 장을 한 번에 고친다 (저장은 한 번만). list: [[id, patch], ...]
+    async updateCards(list) {
+      const now = Date.now();
+      const changed = [];
+      for (const [id, patch] of list) {
+        const c = data.cards.find(c => c.id === id);
+        if (!c) continue;
+        Object.assign(c, patch, { updated: now });
+        changed.push(c);
+      }
+      if (!changed.length) return;
+      save();
+      changed.forEach(c => emit('card', 'set', copy(c)));
+    },
     async deleteCard(id) {
       data.cards = data.cards.filter(c => c.id !== id);
       save();

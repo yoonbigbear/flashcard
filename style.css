@@ -277,6 +277,8 @@ textarea:focus, input:focus { outline: 2px solid var(--primary); outline-offset:
 .kanji-big.small { font-size: 3rem; }
 .kanji-front { font-size: 1.5rem; font-weight: 500; }
 .kanji-read { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+/* 읽기 옆의 한글 발음 */
+.pron-ko { margin-left: 6px; font-size: 0.88em; opacity: 0.75; }
 .flip-card .kanji-read, .kanji-q .kanji-read { justify-content: center; font-weight: 400; }
 .kanji-q { flex-direction: column; gap: 6px; }
 .kanji-q .example { align-self: stretch; }
