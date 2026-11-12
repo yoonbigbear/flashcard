@@ -328,7 +328,8 @@ async function renderDecks() {
   }, '+'));
 }
 
-// 덱 종류: 일반 카드 덱 / 대화 스크립트 덱 / 한자 덱(kanji.js). 스크립트 기능은 스크립트 덱에서만 나온다.
+// 덱 종류: 일반 카드 덱 / 대화 스크립트 덱 / 한자 덱(kanji.js). JLPT 문법·문장 덱(jlpt.js)은 미리 채운 일반 카드 덱이다.
+// 스크립트 기능은 스크립트 덱에서만 나온다.
 const isScriptDeck = (deck, cards) => deck.kind === 'script' || cards.some(c => c.script);
 
 function newDeckDialog() {
@@ -336,33 +337,45 @@ function newDeckDialog() {
   const kind = h('select', { 'aria-label': '덱 종류' },
     h('option', { value: 'cards' }, '일반 카드 덱 (앞/뒤, 빈칸, 퀴즈)'),
     h('option', { value: 'script' }, '대화 스크립트 덱 (대화문 빈칸 채우기)'),
-    h('option', { value: 'kanji' }, '한자 덱 (일본어 상용한자, 급수별)'));
+    h('option', { value: 'kanji' }, '한자 덱 (일본어 상용한자, 급수별)'),
+    h('option', { value: 'jgrammar' }, 'JLPT 문법 덱 (급수별 문법 + 예문)'),
+    h('option', { value: 'jsentence' }, 'JLPT 문장 덱 (급수별 어휘 예문)'));
   // 한자 덱은 급수를 고르면 그 급수의 한자가 미리 채워진다. 이름을 비워 두면 '한자 N5' 처럼 붙인다.
   const level = h('select', { 'aria-label': '한자 급수', hidden: true },
     KANJI_LEVELS.map(([value, label]) => h('option', { value }, label)));
   const kanjiName = () => (level.value ? `한자 ${level.value}` : '');
+  // JLPT 문법·문장 덱(jlpt.js)도 급수를 고르면 그 급수의 카드가 미리 채워진다.
+  const jlptLevel = h('select', { 'aria-label': 'JLPT 급수', hidden: true },
+    JLPT_LEVELS.map(value => h('option', { value }, `JLPT ${value}`)));
+  const jlptName = () => `${JLPT_KINDS[kind.value].name} ${jlptLevel.value}`;
+  const presetName = () => (kind.value === 'kanji' ? kanjiName() : JLPT_KINDS[kind.value] ? jlptName() : '');
   const syncKind = () => {
     level.hidden = kind.value !== 'kanji';
-    name.placeholder = (kind.value === 'kanji' && kanjiName()) || '덱 이름';
+    jlptLevel.hidden = !JLPT_KINDS[kind.value];
+    name.placeholder = presetName() || '덱 이름';
   };
   kind.addEventListener('change', syncKind);
   level.addEventListener('change', syncKind);
+  jlptLevel.addEventListener('change', syncKind);
 
   let busy = false;
   const create = async () => {
     if (busy) return;
     const isKanji = kind.value === 'kanji';
-    const n = name.value.trim() || (isKanji ? kanjiName() : '');
+    const isJlpt = !!JLPT_KINDS[kind.value];
+    const n = name.value.trim() || presetName();
     if (!n) return toast('덱 이름을 입력하세요');
     busy = true;
     let deck;
     try {
       if (isKanji && level.value) toast('한자를 채우는 중…');
+      if (isJlpt) toast('카드를 채우는 중…');
       deck = isKanji ? await createKanjiDeck(n, level.value)
+        : isJlpt ? await createJlptDeck(n, kind.value, jlptLevel.value)
         : await Store.addDeck(n, kind.value === 'script' ? 'script' : undefined);
     } catch (e) {
       busy = false;
-      return toast('한자 목록을 불러오지 못했어요. 인터넷 연결을 확인하세요.');
+      return toast('목록을 불러오지 못했어요. 인터넷 연결을 확인하세요.');
     }
     dlg.close();
     go({ deckId: deck.id });
@@ -371,7 +384,7 @@ function newDeckDialog() {
 
   const dlg = h('dialog', { class: 'dialog' },
     h('h2', null, '새 덱'),
-    h('div', { class: 'card-fields' }, name, kind, level),
+    h('div', { class: 'card-fields' }, name, kind, level, jlptLevel),
     h('div', { class: 'row' },
       h('button', { type: 'button', onclick: () => dlg.close() }, '취소'),
       h('button', { type: 'button', class: 'primary', onclick: create }, '만들기')));

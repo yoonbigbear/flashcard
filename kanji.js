@@ -99,14 +99,17 @@ async function createKanjiDeck(name, level) {
 // お단·う단 뒤의 う 는 장음이라 적지 않는다(とうきょう → 도쿄). 다만 괄호 안 오쿠리가나의 끝이나
 // う 로 끝나는 동사(思う)의 마지막 う, 낱말 경계에 걸린 う(みずうみ)는 장음이 아니다.
 const KANJI_LONG_U = /(ミズウミ|ツツウラ)|([ウクスツヌフムユルグズヅブプュオコソトノホモヨロゴゾドボポョ])ウ(?!\))/g;
+// 가나 한 덩어리 → 한글. keepLastU: 끝의 う 를 장음으로 보지 않는다.
+function kanaKo(kana, keepLastU) {
+  let s = kana.replace(/[ぁ-ゖ]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60));
+  const tail = keepLastU && s.endsWith('ウ') ? 'ウ' : '';
+  if (tail) s = s.slice(0, -1);
+  return JP.kanaToHangul(s.replace(KANJI_LONG_U, (m, keep, a) => keep || a + 'ー') + tail);
+}
 function kanjiKo(kana, word) {
   const verb = /[うウ]$/.test(word || '');
-  return String(kana || '').split('、').map(t => {
-    let s = t.replace(/-/g, '').trim().replace(/[ぁ-ゖ]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60));
-    const tail = verb && s.endsWith('ウ') ? 'ウ' : '';
-    if (tail) s = s.slice(0, -1);
-    return JP.kanaToHangul(s.replace(KANJI_LONG_U, (m, keep, a) => keep || a + 'ー') + tail);
-  }).filter(Boolean).join(', ');
+  return String(kana || '').split('、').map(t => kanaKo(t.replace(/-/g, '').trim(), verb))
+    .filter(Boolean).join(', ');
 }
 const kanjiKoNode = (kana, word) => {
   const ko = kanjiKo(kana, word);
