@@ -66,6 +66,7 @@ const Embed = (() => {
   const cardText = c => [
     String(c.front || '').replace(/\{\{(.+?)\}\}/g, '$1'),
     c.back,
+    c.en,
     String(c.example || '').replace(/\s*\n\s*/g, ' '),
     (c.tags || []).join(' ')
   ].filter(Boolean).join(' / ');

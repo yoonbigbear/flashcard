@@ -172,7 +172,8 @@ function faceNodes(card, dir, flipped) {
   const q = dir === 'r' ? card.back : card.front;
   const a = dir === 'r' ? card.front : card.back;
   return flipped
-    ? [h('div', { class: 'q-small' }, q), h('div', null, a), card.vocab ? pronNodes(card) : null, exampleNode(card)]
+    ? [h('div', { class: 'q-small' }, q), h('div', null, a),
+       card.talk ? talkNodes(card) : card.vocab ? pronNodes(card) : null, exampleNode(card)]
     : [h('div', null, q)];
 }
 
@@ -309,6 +310,7 @@ async function renderDecks() {
       h('div', { class: 'deck-name' }, deck.name),
       h('div', { class: 'deck-meta' },
         scriptDeck ? `대화 스크립트 · ${cards.length}줄`
+          : isTalkDeck(deck) ? `대화 질문 ${cards.length}개`
           : isKanjiDeck(deck) ? `한자 ${cards.length}자 · 배운 한자 ${cards.filter(c => !isNewKanji(c)).length}자`
           : cards.some(isNewVocab) ? `카드 ${cards.length}장 · 새 단어 ${cards.filter(isNewVocab).length}개`
           : `카드 ${cards.length}장`,
@@ -329,7 +331,8 @@ async function renderDecks() {
   }, '+'));
 }
 
-// 덱 종류: 일반 카드 덱 / 대화 스크립트 덱 / 한자 덱(kanji.js). JLPT 문법·문장 덱(jlpt.js)은 미리 채운 일반 카드 덱이다.
+// 덱 종류: 일반 카드 덱 / 대화 스크립트 덱 / 한자 덱(kanji.js) / 대화 질문 덱(talk.js).
+// JLPT 문법·문장 덱(jlpt.js)은 미리 채운 일반 카드 덱이다.
 // 스크립트 기능은 스크립트 덱에서만 나온다.
 const isScriptDeck = (deck, cards) => deck.kind === 'script' || cards.some(c => c.script);
 
@@ -341,7 +344,8 @@ function newDeckDialog() {
     h('option', { value: 'kanji' }, '한자 덱 (일본어 상용한자, 급수별)'),
     h('option', { value: 'jgrammar' }, 'JLPT 문법 덱 (급수별 문법 + 예문)'),
     h('option', { value: 'jsentence' }, 'JLPT 문장 덱 (급수별 어휘 예문)'),
-    h('option', { value: 'vocab' }, 'JLPT 단어 덱 (N5~N3, 급수별)'));
+    h('option', { value: 'vocab' }, 'JLPT 단어 덱 (N5~N3, 급수별)'),
+    h('option', { value: 'talk' }, '대화 질문 덱 (일본어 + 영어, 보이스룸용)'));
   // 한자 덱은 급수를 고르면 그 급수의 한자가 미리 채워진다. 이름을 비워 두면 '한자 N5' 처럼 붙인다.
   const level = h('select', { 'aria-label': '한자 급수', hidden: true },
     KANJI_LEVELS.map(([value, label]) => h('option', { value }, label)));
@@ -349,17 +353,23 @@ function newDeckDialog() {
   const vocabLevel = h('select', { 'aria-label': '단어 급수', hidden: true },
     VOCAB_LEVELS.map(([value, label]) => h('option', { value }, label)));
   const kanjiName = () => (level.value ? `한자 ${level.value}` : '');
+  // 대화 질문 덱은 기본 질문(주제별 질문·맞장구)을 채우거나 빈 덱으로 시작한다.
+  const talkFill = h('select', { 'aria-label': '대화 질문 채우기', hidden: true },
+    h('option', { value: '1' }, '기본 질문 55개 채우기 (주제별)'),
+    h('option', { value: '' }, '빈 덱 (직접 적기)'));
   // JLPT 문법·문장 덱(jlpt.js)도 급수를 고르면 그 급수의 카드가 미리 채워진다.
   const jlptLevel = h('select', { 'aria-label': 'JLPT 급수', hidden: true },
     JLPT_LEVELS.map(value => h('option', { value }, `JLPT ${value}`)));
   const jlptName = () => `${JLPT_KINDS[kind.value].name} ${jlptLevel.value}`;
   const vocabName = () => (vocabLevel.value ? `단어 ${vocabLevel.value}` : '');
   const presetName = () => (kind.value === 'kanji' ? kanjiName() : kind.value === 'vocab' ? vocabName()
+    : kind.value === 'talk' ? '대화 질문'
     : JLPT_KINDS[kind.value] ? jlptName() : '');
   const syncKind = () => {
     level.hidden = kind.value !== 'kanji';
     vocabLevel.hidden = kind.value !== 'vocab';
     jlptLevel.hidden = !JLPT_KINDS[kind.value];
+    talkFill.hidden = kind.value !== 'talk';
     name.placeholder = presetName() || '덱 이름';
   };
   kind.addEventListener('change', syncKind);
@@ -373,6 +383,7 @@ function newDeckDialog() {
     const isKanji = kind.value === 'kanji';
     const isJlpt = !!JLPT_KINDS[kind.value];
     const isVocab = kind.value === 'vocab';
+    const isTalk = kind.value === 'talk';
     const n = name.value.trim() || presetName();
     if (!n) return toast('덱 이름을 입력하세요');
     busy = true;
@@ -381,9 +392,11 @@ function newDeckDialog() {
       if (isKanji && level.value) toast('한자를 채우는 중…');
       if (isJlpt) toast('카드를 채우는 중…');
       if (isVocab && vocabLevel.value) toast('단어를 채우는 중…');
+      if (isTalk && talkFill.value) toast('질문을 채우는 중…');
       deck = isKanji ? await createKanjiDeck(n, level.value)
         : isJlpt ? await createJlptDeck(n, kind.value, jlptLevel.value)
         : isVocab ? await createVocabDeck(n, vocabLevel.value)
+        : isTalk ? await createTalkDeck(n, !!talkFill.value)
         : await Store.addDeck(n, kind.value === 'script' ? 'script' : undefined);
     } catch (e) {
       busy = false;
@@ -396,7 +409,7 @@ function newDeckDialog() {
 
   const dlg = h('dialog', { class: 'dialog' },
     h('h2', null, '새 덱'),
-    h('div', { class: 'card-fields' }, name, kind, level, vocabLevel, jlptLevel),
+    h('div', { class: 'card-fields' }, name, kind, level, vocabLevel, jlptLevel, talkFill),
     h('div', { class: 'row' },
       h('button', { type: 'button', onclick: () => dlg.close() }, '취소'),
       h('button', { type: 'button', class: 'primary', onclick: create }, '만들기')));
@@ -446,6 +459,10 @@ function cardForm(card) {
   pronJa.value = c.pronJa || '';
   const pronKo = h('input', { type: 'text', class: 'text-input', placeholder: '한국어 발음 (선택, 예: 곤니치와)' });
   pronKo.value = c.pronKo || '';
+  // 대화 질문 카드(talk.js): 앞 한국어, 뒤 일본어에 영어 칸이 더 있다.
+  const isTalk = !!c.talk;
+  const en = h('input', { type: 'text', class: 'text-input', lang: 'en', placeholder: '영어 (예: What are your hobbies?)' });
+  en.value = c.en || '';
 
   // 예시 문장: 문장 카드와 같은 형식(문장 / 뜻 / 발음)으로, 필요한 만큼 늘릴 수 있다.
   const exampleRows = h('div', { class: 'example-rows' });
@@ -500,28 +517,47 @@ function cardForm(card) {
     pronJa.hidden = !(sentence || c.vocab);
     pronKo.hidden = !sentence;
     example.hidden = sentence;
+    en.hidden = !isTalk;
+    if (isTalk) {
+      front.placeholder = '한국어 (하고 싶은 말, 예: 취미가 뭐예요?)';
+      back.placeholder = '일본어 (예: 趣味は何ですか？)';
+      pronJa.placeholder = '일본어 읽기 (선택, 와로 읽는 は 앞에 | — 예: しゅみ|は なんですか？)';
+      pronKo.placeholder = '한국어 발음 (비우면 읽기로 채움)';
+      type.hidden = true; blankBtn.hidden = true; example.hidden = true;
+      pronJa.hidden = pronKo.hidden = false;
+    }
   }
   type.addEventListener('change', sync);
   sync();
   if (isLine) { type.hidden = true; blankBtn.hidden = true; revLabel.hidden = true; pronJa.hidden = pronKo.hidden = true; example.hidden = true; starRow.hidden = true; flagRow.hidden = true; }
 
   return {
-    el: h('div', { class: 'card-fields' }, type, front, blankBtn, back, pronJa, pronKo, example, isLine ? read : null, hasVideo ? start : null, tags, revLabel, starRow, flagRow),
+    el: h('div', { class: 'card-fields' }, type, front, blankBtn, back, en, pronJa, pronKo, example, isLine ? read : null, hasVideo ? start : null, tags, revLabel, starRow, flagRow),
     front,
     // 검증에 실패하면 null
     get() {
-      const isCloze = type.value === 'cloze';
-      const isSentence = type.value === 'sentence';
+      const isCloze = !isTalk && type.value === 'cloze';
+      const isSentence = !isTalk && type.value === 'sentence';
       const f = front.value.trim(), b = back.value.trim();
+      if (isTalk && !b && !en.value.trim()) { toast('일본어나 영어 중 하나는 입력하세요'); return null; }
       if (!f) { toast('내용을 입력하세요'); return null; }
       if (isCloze && !clozeAnswers(f).length) { toast('{{단어}} 형태로 빈칸을 하나 이상 지정하세요'); return null; }
-      if (!isCloze && !b && !isLine) { toast('앞면과 뒷면을 모두 입력하세요'); return null; }
-      const exampleValues = isLine || isSentence ? [] : exampleInputs
+      if (!isCloze && !b && !isLine && !isTalk) { toast('앞면과 뒷면을 모두 입력하세요'); return null; }
+      const exampleValues = isLine || isSentence || isTalk ? [] : exampleInputs
         .map(x => ({ front: x.ef.value.trim(), back: x.eb.value.trim(), pronJa: x.ej.value.trim(), pronKo: x.ek.value.trim() }))
         .filter(e => e.front || e.back);
       if (exampleValues.some(e => !e.front)) { toast('예시 문장의 문장 칸이 비었어요'); return null; }
       const startSec = hasVideo ? JP.parseTime(start.value) : null;
       if (Number.isNaN(startSec)) { toast('시간은 1:23 처럼 적어 주세요'); return null; }
+      if (isTalk) {
+        const ja = pronJa.value.trim();
+        return {
+          type: 'basic', talk: true, front: f, back: b, en: en.value.trim(),
+          tags: unique(tags.value.split(/[,，]/).map(t => t.trim()).filter(Boolean)),
+          reverse: rev.checked, pronJa: jlptReading(ja), pronKo: pronKo.value.trim() || talkKo(ja),
+          star: starCheck.checked, flag: flagCheck.checked, examples: [], example: ''
+        };
+      }
       return {
         type: type.value,
         front: f,
@@ -629,7 +665,9 @@ async function renderDeck(deckId) {
 
   // 카드 추가 폼 (게스트는 숨김, 모음 덱에서는 추가하지 않는다)
   if (!isReadOnly() && !isVirtualDeck(deckId)) {
-    const form = cardForm({ type: formMemo.type, front: '', back: '', tags: formMemo.tags, reverse: formMemo.reverse });
+    const form = cardForm(isTalkDeck(deck)
+      ? { type: 'basic', talk: true, front: '', back: '', tags: formMemo.tags, reverse: false }
+      : { type: formMemo.type, front: '', back: '', tags: formMemo.tags, reverse: formMemo.reverse });
     const addBtn = h('button', {
       type: 'button', class: 'primary',
       onclick: async () => {
@@ -733,13 +771,14 @@ function cardRow(c, extra) {
     h('div', { class: 'card-text' },
       h('div', { class: 'card-front' + (c.type === 'kanji' ? ' kanji-front' : ''), lang: c.type === 'kanji' ? 'ja' : null }, body),
       c.back ? h('div', { class: 'card-back' }, c.back) : null,
-      c.type === 'sentence' || c.vocab ? pronNodes(c) : null,
+      c.talk ? talkNodes(c) : c.type === 'sentence' || c.vocab ? pronNodes(c) : null,
       c.type === 'kanji' ? kanjiInfoNodes(c) : null,
       exampleNode(c),
       h('div', { class: 'card-meta' },
         c.type === 'kanji' ? h('span', { class: 'tag kind' }, '한자') : null,
         c.type === 'cloze' ? h('span', { class: 'tag kind' }, '빈칸') : null,
         c.type === 'sentence' ? h('span', { class: 'tag kind' }, '문장') : null,
+        c.talk ? h('span', { class: 'tag kind' }, '대화') : null,
         c.reverse ? h('span', { class: 'tag kind' }, '↔ 양방향') : null,
         c.star ? h('span', { class: 'tag kind' }, '★') : null,
         c.flag ? h('span', { class: 'tag warn' }, '🚩 수정 필요') : null,

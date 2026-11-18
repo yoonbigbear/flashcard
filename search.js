@@ -92,7 +92,7 @@ const Search = (() => {
     const reading = readingOf(card);
     const kana = [reading, card.pronJa].filter(Boolean).join(' ');
     return norm([
-      card.front, card.back, card.pronJa, card.pronKo, card.example, card.read, card.speaker,
+      card.front, card.back, card.en, card.pronJa, card.pronKo, card.example, card.read, card.speaker,
       card.scriptName, deckName, (card.tags || []).join(' '),
       reading,
       kana ? JP.kanaToHangul(kana) : ''   // 가나 읽기의 한글 발음 (한글로 쳐도 일본어 카드가 나온다)
