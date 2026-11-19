@@ -255,6 +255,7 @@ async function render() {
   if (nav.tab === 'note') return nav.mode === 'study' ? renderNoteStudy() : renderNote();
   if (nav.deckId) {
     if (nav.mode === 'study') return renderStudy(nav.deckId);
+    if (nav.mode === 'random') return renderRandom(nav.deckId);
     if (nav.mode === 'quiz') return renderQuiz(nav.deckId);
     if (nav.mode === 'sentence') return renderSentence(nav.deckId);
     if (nav.mode === 'match') return renderMatch(nav.deckId);
@@ -659,6 +660,10 @@ async function renderDeck(deckId) {
       }, '매칭 게임'),
       allTags.length ? h('button', { onclick: () => tagStudyDialog(deckId, cards) }, '태그별 학습') : null),
     h('button', {
+      disabled: scoped.length === 0,
+      onclick: () => go({ deckId, tag, mode: 'random' })
+    }, `전체 무작위 (${scoped.length}장)`),
+    h('button', {
       disabled: sentenceItems(scoped).length === 0,
       onclick: () => go({ deckId, tag, mode: 'sentence' })
     }, `문장 문제 (${sentenceItems(scoped).length})`));
@@ -953,6 +958,21 @@ async function renderStudy(deckId) {
   // JLPT 단어 카드도 새 단어를 조금씩 더한다.
   flashSession({
     items: [...dueItems(scoped), ...(kanjiDeck ? newKanjiItems(scoped) : []), ...newVocabItems(scoped)],
+    patchFn: ratePatch,
+    onFinish: () => go({ deckId, tag: nav.tag })
+  });
+}
+
+// 전체 무작위: 복습 일정과 상관없이 (태그로 고른) 카드 전체를 섞어서 푼다.
+// 평가는 '학습'과 똑같이 복습 일정·오답노트에 반영된다. 양방향·문장 카드는 방향을 무작위로 고른다.
+async function renderRandom(deckId) {
+  setHeader('전체 무작위', { deckId, tag: nav.tag });
+  const cards = (await deckCards(deckId)).filter(c => !c.script);
+  const scoped = nav.tag ? cards.filter(c => c.tags.includes(nav.tag)) : cards;
+  flashSession({
+    items: scoped.map(card => ({
+      card, dir: (card.type === 'sentence' || (card.type === 'basic' && card.reverse)) && Math.random() < 0.5 ? 'r' : 'f'
+    })),
     patchFn: ratePatch,
     onFinish: () => go({ deckId, tag: nav.tag })
   });
